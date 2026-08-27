@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>博客 - Personal Hub</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; background: #fafafa; color: #1f2937; }
+    header { background: #111827; color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    header a { color: #93c5fd; text-decoration: none; font-size: 14px; }
+    main { max-width: 760px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 22px; }
+    .post { padding: 18px 0; border-bottom: 1px solid #e5e7eb; }
+    .post a { color: #111827; text-decoration: none; font-size: 18px; font-weight: 600; }
+    .post a:hover { color: #2563eb; }
+    .meta { color: #6b7280; font-size: 13px; margin-top: 4px; }
+    .empty { color: #6b7280; margin-top: 24px; }
+    .err { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Personal Hub · 博客</strong>
+    <a href="/login">登录管理 →</a>
+  </header>
+  <main>
+    <h1>最新文章</h1>
+    <div id="list"><div class="empty">加载中…</div></div>
+  </main>
+  <script>
+    async function load() {
+      const el = document.getElementById('list');
+      try {
+        const r = await fetch('/api/public/posts', { credentials: 'same-origin' });
+        if (!r.ok) throw new Error('load failed');
+        const { posts } = await r.json();
+        if (!posts.length) { el.innerHTML = '<div class="empty">暂无已发布文章。</div>'; return; }
+        el.innerHTML = posts.map(p => `
+          <div class="post">
+            <a href="/blog/post?slug=${encodeURIComponent(p.slug)}">${escapeHtml(p.title)}</a>
+            <div class="meta">${new Date(p.created_at).toLocaleString()}</div>
+          </div>`).join('');
+      } catch (e) {
+        el.innerHTML = '<div class="err">加载失败，请稍后重试。</div>';
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    load();
+  </script>
+</body>
+</html>

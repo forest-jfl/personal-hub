@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 运行时数据
+uploads/
+*.log
+.env
+
+# 系统/编辑器
+.DS_Store
+.idea/
+.vscode/
