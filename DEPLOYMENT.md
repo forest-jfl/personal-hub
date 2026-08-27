@@ -99,11 +99,33 @@ sudo bash deploy/setup.sh
 
 **方式 A：git clone（推荐，便于后续升级）**
 
+> ⚠️ **私有仓库必须先授权服务器拉取**，否则 `git clone` 会因无权限失败。二选一：
+> - **部署公钥（推荐）**：在服务器生成密钥并把公钥加到 Gitee 仓库的「部署公钥」（见下方步骤）。
+> - **HTTPS + 私人令牌**：clone 时用 `https://gitee.com/<用户名>/personal-hub.git`，密码处填 Gitee 私人令牌（不是登录密码）。
+
+**A-1 配置服务器拉取权限（部署公钥）**
+
 ```bash
+# 在远程服务器上生成一对 SSH 密钥（如已有可跳过）
+ssh root@服务器公网IP
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""   # 一路回车
+
+# 打印公钥，复制其全部内容
+cat ~/.ssh/id_ed25519.pub
+```
+
+然后到 **Gitee → 进入 personal-hub 仓库 → 管理 → 部署公钥 → 添加公钥**，把上面 `cat` 输出的内容粘贴进去并保存（标题随意，如 `ubuntu-server`）。
+
+**A-2 克隆代码**
+
+```bash
+ssh root@服务器公网IP
 cd /opt
-git clone <你的仓库地址> personal-hub
+git clone git@gitee.com:<你的Gitee用户名>/personal-hub.git
 cd personal-hub
 ```
+
+> 验证：能成功 clone 即说明部署公钥已生效。若仍提示 `Permission denied (publickey)`，请确认公钥已正确添加到仓库的「部署公钥」（不是「个人公钥」），且 clone 地址用的是 SSH 形式。
 
 **方式 B：本地打包后上传**
 
