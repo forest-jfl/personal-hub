@@ -7,7 +7,7 @@
 - **写作编辑**（`/editor`）：Markdown 编辑 + 实时预览，存草稿或发布
 - **管理控制台**（`/console`）：**隐藏页面**，入口在右上角头像下拉菜单；文章 / 文件 / 用户管理三个板块整合于此，不再作为独立导航标签
 - **多用户**：初始管理员通过环境变量播种，管理员可在控制台创建朋友账号
-- **双端运行**：本地由 Express 同源托管前端；前端也可托管到 GitHub Pages / Gitee Pages，跨域调用 API
+- **双端运行**：本地由 Express 同源托管前端；前端也可托管到 GitHub Pages，跨域调用 API
 
 技术栈：**Node.js + TypeScript + Express + MySQL/MariaDB**，前端**零构建**（原生 JS/CSS 多文件静态页）。
 
@@ -54,24 +54,34 @@ npm run dev                 # ts-node 启动，默认 http://127.0.0.1:3000
 
 ---
 
-## 2.1 git 平台托管前端（GitHub Pages / Gitee Pages）
+## 2.1 git 平台托管前端（GitHub Pages）
 
-前端是纯静态文件，可直接发布到任意 git 平台 Pages，后端继续跑在自己的服务器上。
+前端是纯静态文件，托管到 GitHub Pages，后端继续跑在自己的服务器上。
 
-**一键发布脚本**（在仓库根目录执行，把前端推送到 `pages` 分支并注入 API_BASE）：
+> ⚠️ Gitee Pages 服务已于 2025 年下线（官方确认，新用户无法开通），仅把 Gitee 当代码镜像与 `pages` 分支存档。
+
+**一键发布脚本**（在仓库根目录执行，把前端推送到 `pages` 分支并注入 API_BASE，自动推送到 origin 与 github 两个远程）：
 
 ```bash
 API_BASE=https://api.your-domain.com bash deploy/publish-pages.sh pages
 ```
 
-发布后到 git 平台仓库设置中开启 Pages、选择 `pages` 分支即可。
+**GitHub Pages 开启（仅首次）**：仓库公开（免费版要求）→ 推送 `pages` 分支 → API 开启（或网页端 Settings → Pages → Branch 选 `pages` / root）：
+
+```bash
+curl -X POST https://api.github.com/repos/<owner>/<repo>/pages \
+  -H "Authorization: Bearer <token>" -H "Accept: application/vnd.github+json" \
+  -d '{"source":{"branch":"pages","path":"/"}}'
+```
+
+开启后随每次推送 `pages` 分支自动重新部署，地址：`https://<用户名>.github.io/<仓库名>/`。
 
 **启用前的前置条件**（按顺序完成）：
 
-1. **服务器必须先有 HTTPS**：Pages 页面是 HTTPS，调用 HTTP 接口会被浏览器拦截（混合内容）。等域名解析好后上 Caddy/certbot。
+1. **服务器必须先有 HTTPS**：Pages 页面是 HTTPS，调用 HTTP 接口会被浏览器拦截（混合内容）。域名经 Cloudflare 代理时边缘证书自带，源站用 Caddy 提供回源 HTTPS。
 2. **后端 `.env` 追加**：
    ```ini
-   CORS_ORIGINS=https://<用户名>.github.io,https://<用户名>.gitee.io
+   CORS_ORIGINS=https://<用户名>.github.io
    SESSION_CROSS_SITE=true
    SESSION_SECURE=true      # 跨站 Cookie 要求 HTTPS
    ```

@@ -43,14 +43,19 @@ if ! grep -q "API_BASE: '$API_BASE'" "$WORK/config.js"; then
   exit 1
 fi
 
-# 提交并强制推送
+# 提交并强制推送到所有已配置的 Pages 远程（origin=Gitee、github=GitHub）
 cd "$WORK"
 git add -A
 git -c user.name="pages-deploy" -c user.email="pages-deploy@local" \
   commit -qm "pages: publish frontend (API_BASE=$API_BASE, $(date +%Y-%m-%d_%H:%M))"
-git push -q -f origin "HEAD:refs/heads/$BRANCH"
+PUSHED=""
+for remote in origin github; do
+  if git remote get-url "$remote" >/dev/null 2>&1; then
+    git push -q -f "$remote" "HEAD:refs/heads/$BRANCH" && PUSHED="$PUSHED $remote"
+  fi
+done
 cd - >/dev/null
 
 git worktree remove --force "$WORK"
-echo "完成：前端已推送到分支 $BRANCH（API_BASE=$API_BASE）"
-echo "下一步：在 git 平台仓库设置中开启 Pages，选择 $BRANCH 分支。"
+echo "完成：前端已推送到分支 $BRANCH（远程:$PUSHED，API_BASE=$API_BASE）"
+echo "GitHub Pages 随推送自动重新部署；Gitee Pages 服务已下线，仅作分支存档。"
