@@ -1,0 +1,12 @@
+node_modules
+dist
+uploads
+*.log
+.env
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+deploy
+*.md

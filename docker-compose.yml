@@ -1,0 +1,49 @@
+# Personal Hub - Docker Compose 部署
+# 用法：
+#   1. 在项目根目录准备 .env（参考 .env.example，注意 DB_HOST 填 db）
+#   2. docker compose up -d --build
+#   3. 查看日志：docker compose logs -f app
+#
+# app 只在宿主机 127.0.0.1:3000 暴露，对外统一走 Nginx/Caddy 反代。
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-personal_hub}
+      MARIADB_USER: ${DB_USER:-personal_hub}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?请在 .env 中设置 DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    # 不映射端口到宿主机，仅限 compose 网络内访问
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # 容器内必须监听 0.0.0.0，宿主机侧只暴露 127.0.0.1
+      HOST: 0.0.0.0
+      # 容器内通过服务名连数据库
+      DB_HOST: db
+      DB_PORT: 3306
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  db-data:
+  uploads:
