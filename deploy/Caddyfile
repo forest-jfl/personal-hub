@@ -1,0 +1,14 @@
+# Personal Hub - Caddy 反代（Docker 容器内使用）
+# Caddy 自动申请/续期 Let's Encrypt 证书（HTTP-01，走 80 端口）
+# 注意：域名经 Cloudflare 代理时，需保证 CF 的 SSL 模式不是 Off，
+#       且「始终使用 HTTPS」未拦截 /.well-known/acme-challenge 转发。
+
+# 主域名：HTTPS + 自动证书
+blog.jiangfulin.com {
+	reverse_proxy app:3000
+}
+
+# 兜底：直接用服务器 IP 的 HTTP 访问（无证书场景）
+http://47.238.246.132 {
+	reverse_proxy app:3000
+}
