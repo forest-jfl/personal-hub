@@ -11,21 +11,47 @@
 
   <div class="page">
     <div class="card">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <input type="text" id="titleInput" placeholder="文章标题" style="flex:1;min-width:240px;font-size:16px;padding:10px 14px;" />
-        <input type="text" id="categoryInput" placeholder="分类（如：技术 / 笔记）" style="width:200px;" />
-        <select id="statusSelect">
-          <option value="draft">存为草稿</option>
-          <option value="published">立即发布</option>
-        </select>
-        <button class="btn" id="saveBtn">保存</button>
+        <input type="text" id="categoryInput" list="categoryList" placeholder="分类（可选择或输入）" style="width:200px;" />
+        <datalist id="categoryList"></datalist>
+        <button class="btn" id="publishBtn">立即发布</button>
+        <button class="btn btn-ghost" id="draftBtn">存为草稿</button>
         <a class="btn btn-ghost" href="/console">文章列表</a>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="muted" id="slugPreview">永久链接将根据标题自动生成</span>
+        <span class="muted" id="wordCount">0 字</span>
+        <span class="muted" id="autoSaveState"></span>
+        <span style="flex:1;"></span>
+        <label class="muted" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="autoSaveToggle" checked /> 自动保存
+        </label>
       </div>
       <div id="msg" class="muted" style="min-height:18px;margin-bottom:8px;"></div>
 
+      <!-- Markdown 工具栏 -->
+      <div class="md-toolbar" id="mdToolbar">
+        <button type="button" data-md="h1" title="一级标题">H1</button>
+        <button type="button" data-md="h2" title="二级标题">H2</button>
+        <button type="button" data-md="bold" title="加粗 (Ctrl+B)"><b>B</b></button>
+        <button type="button" data-md="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+        <button type="button" data-md="code" title="行内代码">&lt;/&gt;</button>
+        <button type="button" data-md="codeblock" title="代码块">{ }</button>
+        <button type="button" data-md="quote" title="引用">❝</button>
+        <button type="button" data-md="ul" title="无序列表">• 列表</button>
+        <button type="button" data-md="ol" title="有序列表">1. 列表</button>
+        <button type="button" data-md="link" title="链接 (Ctrl+K)">🔗</button>
+        <button type="button" data-md="image" title="插入图片（自动上传）">🖼</button>
+        <button type="button" data-md="table" title="表格">表格</button>
+        <button type="button" data-md="hr" title="分隔线">—</button>
+        <input type="file" id="imageInput" accept="image/*" class="hidden" />
+      </div>
+
       <div class="editor-grid">
         <div class="editor-pane">
-          <textarea id="contentInput" placeholder="正文，支持 Markdown…"></textarea>
+          <textarea id="contentInput" placeholder="正文，支持 Markdown。可直接粘贴/拖拽截图，自动上传为图床链接…"></textarea>
         </div>
         <div class="preview-pane post-html" id="previewPane">
           <span class="muted">预览区域（输入正文后自动刷新）</span>
@@ -40,8 +66,13 @@
   <script>
     (function () {
       'use strict';
-      var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
+      var api = HUB.api, esc = HUB.esc, qs = HUB.qs, url = HUB.url;
       var editingId = qs('id') ? parseInt(qs('id'), 10) : null;
+      var LS_KEY = 'hub_editor_draft';
+      var loadedStatus = 'draft';   // 编辑已有文章时的原状态（自动保存不得改变发布状态）
+      var dirty = false;
+      var autoSaveTimer = null;
+      var lastSavedSnapshot = '';
 
       var msgEl = document.getElementById('msg');
       function msg(text, cls) {
@@ -49,76 +80,288 @@
         msgEl.className = cls || 'muted';
       }
 
+      var $title = document.getElementById('titleInput');
+      var $category = document.getElementById('categoryInput');
+      var $content = document.getElementById('contentInput');
+
+      /* ---------- 预览 / 字数 / slug ---------- */
+      function slugify(title) {
+        var base = title.toLowerCase().replace(/[^\w一-龥]+/g, '-').replace(/^-+|-+$/g, '');
+        return base || 'post';
+      }
       function renderPreview() {
-        var raw = document.getElementById('contentInput').value;
         var pane = document.getElementById('previewPane');
         if (window.marked) {
-          pane.innerHTML = String(window.marked.parse(raw || ''));
+          pane.innerHTML = String(window.marked.parse($content.value || ''));
         } else {
-          pane.innerHTML = '<pre style="white-space:pre-wrap;">' + esc(raw) + '</pre>';
+          pane.innerHTML = '<pre style="white-space:pre-wrap;">' + esc($content.value) + '</pre>';
         }
       }
+      function renderMeta() {
+        document.getElementById('wordCount').textContent = $content.value.length + ' 字';
+        var t = $title.value.trim();
+        document.getElementById('slugPreview').textContent = t
+          ? '永久链接 /post?slug=' + slugify(t)
+          : '永久链接将根据标题自动生成';
+      }
+      function markDirty() {
+        dirty = true;
+        renderMeta();
+        renderPreview();
+      }
+      $title.addEventListener('input', markDirty);
+      $content.addEventListener('input', markDirty);
+      $category.addEventListener('input', markDirty);
 
-      async function loadEditing() {
-        if (!editingId) {
-          document.getElementById('titleInput').focus();
-          return;
-        }
+      /* ---------- Markdown 工具栏 ---------- */
+      function getSel() {
+        return { start: $content.selectionStart, end: $content.selectionEnd };
+      }
+      function applyEdit(newText, selStart, selEnd) {
+        $content.setRangeText(newText, selStart, selEnd, 'end');
+        $content.focus();
+        markDirty();
+      }
+      function wrap(before, after, placeholder) {
+        var s = getSel();
+        var selected = $content.value.slice(s.start, s.end) || placeholder;
+        applyEdit(before + selected + after, s.start, s.end);
+      }
+      function linePrefix(prefix) {
+        var s = getSel();
+        var val = $content.value;
+        var lineStart = val.lastIndexOf('\n', s.start - 1) + 1;
+        applyEdit(prefix, lineStart, lineStart);
+      }
+      var toolbarActions = {
+        h1: function () { linePrefix('# '); },
+        h2: function () { linePrefix('## '); },
+        bold: function () { wrap('**', '**', '加粗文字'); },
+        italic: function () { wrap('*', '*', '斜体文字'); },
+        code: function () { wrap('`', '`', 'code'); },
+        codeblock: function () { wrap('\n```js\n', '\n```\n', '// 代码'); },
+        quote: function () { linePrefix('> '); },
+        ul: function () { linePrefix('- '); },
+        ol: function () { linePrefix('1. '); },
+        link: function () {
+          var s = getSel();
+          var text = $content.value.slice(s.start, s.end) || '链接文字';
+          applyEdit('[' + text + '](https://)', s.start, s.end);
+        },
+        image: function () { document.getElementById('imageInput').click(); },
+        table: function () {
+          var s = getSel();
+          var tpl = '\n| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n';
+          applyEdit(tpl, s.start, s.end);
+        },
+        hr: function () { applyEdit('\n---\n', 0, 0); }
+      };
+      document.getElementById('mdToolbar').addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-md]');
+        if (!btn) return;
+        toolbarActions[btn.dataset.md]();
+      });
+
+      /* ---------- 图片上传（选择 / 粘贴 / 拖拽，全自动） ---------- */
+      async function uploadAndInsert(file) {
+        if (!/^image\//.test(file.type)) { msg('仅支持图片文件', 'err'); return; }
+        if (file.size > 20 * 1024 * 1024) { msg('图片不能超过 20MB', 'err'); return; }
+        msg('图片上传中… ' + file.name);
+        var fd = new FormData();
+        fd.append('file', file);
         try {
-          var d = await api('/api/posts');
-          var p = d.posts.find(function (x) { return x.id === editingId; });
-          if (!p) { msg('未找到该文章（可能无权限）', 'err'); return; }
-          document.getElementById('titleInput').value = p.title;
-          document.getElementById('categoryInput').value = p.category || '';
-          document.getElementById('statusSelect').value = p.status;
-          document.getElementById('contentInput').value = p.content || '';
-          document.title = '编辑：' + p.title + ' · Personal Hub';
-          renderPreview();
+          var d = await api('/api/files', { method: 'POST', body: fd });
+          var link = url('/api/public/files/' + d.file.id + '/' + d.file.public_token);
+          var alt = file.name.replace(/\.[^.]+$/, '');
+          applyEdit('\n![' + esc(alt) + '](' + link + ')\n', 0, 0);
+          msg('图片已插入', 'ok');
+          scheduleAutoSave();
         } catch (e) {
-          msg('加载文章失败：' + e.message, 'err');
+          msg('图片上传失败：' + e.message, 'err');
         }
       }
+      document.getElementById('imageInput').addEventListener('change', function (e) {
+        if (e.target.files[0]) uploadAndInsert(e.target.files[0]);
+        e.target.value = '';
+      });
+      // 粘贴截图直接上传
+      $content.addEventListener('paste', function (e) {
+        var items = (e.clipboardData || {}).items || [];
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') === 0) {
+            e.preventDefault();
+            uploadAndInsert(items[i].getAsFile());
+            return;
+          }
+        }
+      });
+      // 拖拽图片直接上传
+      $content.addEventListener('drop', function (e) {
+        var files = (e.dataTransfer || {}).files || [];
+        if (files.length && /^image\//.test(files[0].type)) {
+          e.preventDefault();
+          uploadAndInsert(files[0]);
+        }
+      });
 
-      document.getElementById('saveBtn').addEventListener('click', async function () {
-        var title = document.getElementById('titleInput').value.trim();
-        var content = document.getElementById('contentInput').value;
-        var category = document.getElementById('categoryInput').value.trim();
-        var status = document.getElementById('statusSelect').value;
-        if (!title) { msg('请填写标题', 'err'); return; }
-        var btn = this;
-        btn.disabled = true;
+      /* ---------- 快捷键 ---------- */
+      document.addEventListener('keydown', function (e) {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        var k = e.key.toLowerCase();
+        if (k === 's') { e.preventDefault(); savePost(currentIntentStatus()); }
+        else if (k === 'b') { e.preventDefault(); toolbarActions.bold(); }
+        else if (k === 'i') { e.preventDefault(); toolbarActions.italic(); }
+        else if (k === 'k') { e.preventDefault(); toolbarActions.link(); }
+      });
+
+      /* ---------- 保存 / 发布 ---------- */
+      function collectPayload(status) {
+        return {
+          title: $title.value.trim(),
+          content: $content.value,
+          category: $category.value.trim(),
+          status: status
+        };
+      }
+      function currentIntentStatus() {
+        // 编辑已有文章时保留原状态语义：有原状态则维持，否则视为发布
+        return editingId ? loadedStatus : 'published';
+      }
+      function snapshot() {
+        return JSON.stringify([editingId, $title.value, $category.value, $content.value]);
+      }
+      async function savePost(status, btn) {
+        var payload = collectPayload(status);
+        if (!payload.title) { msg('请填写标题', 'err'); return; }
+        if (btn) btn.disabled = true;
         msg('保存中…');
         try {
           if (editingId) {
             await api('/api/posts/' + editingId, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ title: title, content: content, category: category, status: status })
+              body: JSON.stringify(payload)
             });
-            msg('已保存', 'ok');
+            loadedStatus = status; // 同步原状态，自动保存与后续操作以此为基准
           } else {
             var d = await api('/api/posts', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ title: title, content: content, category: category, status: status })
+              body: JSON.stringify(payload)
             });
-            msg('已保存，跳转编辑页…', 'ok');
-            setTimeout(function () { location.href = '/editor?id=' + d.post.id; }, 500);
-            return;
+            editingId = d.post.id;
+            loadedStatus = status;
+            history.replaceState(null, '', '/editor?id=' + editingId);
+            localStorage.removeItem(LS_KEY);
           }
+          dirty = false;
+          lastSavedSnapshot = snapshot();
+          var label = status === 'published' ? '已发布' : '已存为草稿';
+          msg(label + ' · ' + new Date().toLocaleTimeString(), 'ok');
+          document.title = (payload.title) + ' · Personal Hub';
+          scheduleAutoSave();
         } catch (e) {
           msg('保存失败：' + e.message, 'err');
         }
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
+      }
+      document.getElementById('publishBtn').addEventListener('click', function () { savePost('published', this); });
+      document.getElementById('draftBtn').addEventListener('click', function () { savePost('draft', this); });
+
+      /* ---------- 自动保存 ---------- */
+      function scheduleAutoSave() {
+        clearTimeout(autoSaveTimer);
+        if (!document.getElementById('autoSaveToggle').checked) return;
+        autoSaveTimer = setTimeout(autoSave, 30 * 1000);
+      }
+      async function autoSave() {
+        scheduleAutoSave(); // 无论本次是否保存，都排下一次
+        if (!dirty && snapshot() === lastSavedSnapshot) return;
+        var stateEl = document.getElementById('autoSaveState');
+        try {
+          if (editingId) {
+            // 自动保存不改变发布状态
+            var payload = collectPayload(loadedStatus);
+            if (!payload.title) return;
+            await api('/api/posts/' + editingId, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            stateEl.textContent = '已自动保存 ' + new Date().toLocaleTimeString();
+            lastSavedSnapshot = snapshot();
+            dirty = false;
+          } else {
+            // 新文章：先本地兜底，等手动保存时落库
+            localStorage.setItem(LS_KEY, snapshot());
+            stateEl.textContent = '本地草稿已备份 ' + new Date().toLocaleTimeString();
+          }
+        } catch (e) {
+          stateEl.textContent = '自动保存失败，将自动重试';
+        }
+      }
+      document.getElementById('autoSaveToggle').addEventListener('change', function () {
+        if (this.checked) scheduleAutoSave(); else clearTimeout(autoSaveTimer);
       });
 
-      document.getElementById('contentInput').addEventListener('input', renderPreview);
+      // 关闭页面前提示未保存内容
+      window.addEventListener('beforeunload', function (e) {
+        if (dirty && snapshot() !== lastSavedSnapshot) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      });
+
+      /* ---------- 载入 ---------- */
+      function restoreLocalDraft() {
+        try {
+          var raw = localStorage.getItem(LS_KEY);
+          if (!raw) return;
+          var arr = JSON.parse(raw);
+          if (arr[0]) return; // 仅恢复"新文章"本地草稿
+          if (arr[1] || arr[3]) {
+            $title.value = arr[1] || '';
+            $category.value = arr[2] || '';
+            $content.value = arr[3] || '';
+            msg('已恢复上次未保存的本地草稿', 'ok');
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      async function loadCategories() {
+        try {
+          var m = await api('/api/public/meta');
+          document.getElementById('categoryList').innerHTML = m.categories
+            .map(function (c) { return '<option value="' + esc(c.name) + '">'; }).join('');
+        } catch (e) { /* ignore */ }
+      }
+
+      async function loadEditing() {
+        if (!editingId) { restoreLocalDraft(); $title.focus(); renderMeta(); renderPreview(); return; }
+        try {
+          var d = await api('/api/posts');
+          var p = d.posts.find(function (x) { return x.id === editingId; });
+          if (!p) { msg('未找到该文章（可能无权限）', 'err'); return; }
+          $title.value = p.title;
+          $category.value = p.category || '';
+          loadedStatus = p.status;
+          $content.value = p.content || '';
+          document.title = '编辑：' + p.title + ' · Personal Hub';
+          lastSavedSnapshot = snapshot();
+          renderMeta();
+          renderPreview();
+        } catch (e) {
+          msg('加载文章失败：' + e.message, 'err');
+        }
+      }
 
       (async function init() {
         var me = await HUB.requireMe();
         if (!me) return;
         HUB.renderNav(me);
+        await loadCategories();
         loadEditing();
+        scheduleAutoSave();
       })();
     })();
   </script>

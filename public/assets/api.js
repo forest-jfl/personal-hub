@@ -65,6 +65,7 @@
         '    <div class="dropdown-role">' + esc(roleTag) + ' · ' + esc(me.username) + '</div>' +
         '    <a href="/editor">✎ 写文章</a>' +
         '    <a href="/console">🗂 管理控制台</a>' +
+        '    <a href="/console?tab=account">🔑 修改密码</a>' +
         '    <a href="#" id="logoutLink">⎋ 退出登录</a>' +
         '  </div>' +
         '</div>';

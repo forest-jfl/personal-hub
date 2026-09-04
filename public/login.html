@@ -13,16 +13,48 @@
       <p>登录后可写作、管理文件与文章</p>
     </div>
     <div class="card">
-      <div class="form-item">
-        <label for="username">用户名</label>
-        <input type="text" id="username" autocomplete="username" />
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">登 录</button>
+        <button class="auth-tab" data-tab="register">注 册</button>
       </div>
-      <div class="form-item">
-        <label for="password">密码</label>
-        <input type="password" id="password" autocomplete="current-password" />
-      </div>
-      <div id="msg" class="err" style="min-height:18px;margin-bottom:8px;"></div>
-      <button class="btn" id="loginBtn">登 录</button>
+
+      <!-- 登录表单 -->
+      <form id="loginForm">
+        <div class="form-item">
+          <label for="username">用户名</label>
+          <input type="text" id="username" autocomplete="username" />
+        </div>
+        <div class="form-item">
+          <label for="password">密码</label>
+          <input type="password" id="password" autocomplete="current-password" />
+        </div>
+        <div id="msg" class="err" style="min-height:18px;margin-bottom:8px;"></div>
+        <button class="btn" id="loginBtn" type="submit">登 录</button>
+      </form>
+
+      <!-- 注册表单 -->
+      <form id="registerForm" class="hidden">
+        <div class="form-item">
+          <label for="regUsername">用户名（2-32 位字母/数字/下划线/连字符）</label>
+          <input type="text" id="regUsername" autocomplete="username" />
+        </div>
+        <div class="form-item">
+          <label for="regDisplay">昵称（可选）</label>
+          <input type="text" id="regDisplay" maxlength="32" />
+        </div>
+        <div class="form-item">
+          <label for="regPassword">密码（至少 8 位）</label>
+          <input type="password" id="regPassword" autocomplete="new-password" />
+        </div>
+        <div class="form-item">
+          <label for="regPassword2">确认密码</label>
+          <input type="password" id="regPassword2" autocomplete="new-password" />
+        </div>
+        <div id="regMsg" class="err" style="min-height:18px;margin-bottom:8px;"></div>
+        <button class="btn" id="regBtn" type="submit">注 册</button>
+        <p class="muted" style="margin:10px 0 0;font-size:12px;">注册后即可撰写文章，账号由管理员管理。</p>
+      </form>
+
       <div class="login-foot"><a href="/">← 返回首页</a></div>
     </div>
   </div>
@@ -35,7 +67,19 @@
       var api = HUB.api, qs = HUB.qs;
       var next = qs('next') || '/';
 
-      async function tryLogin() {
+      // Tab 切换
+      document.querySelector('.auth-tabs').addEventListener('click', function (e) {
+        var t = e.target.closest('.auth-tab');
+        if (!t) return;
+        document.querySelectorAll('.auth-tab').forEach(function (x) { x.classList.remove('active'); });
+        t.classList.add('active');
+        document.getElementById('loginForm').classList.toggle('hidden', t.dataset.tab !== 'login');
+        document.getElementById('registerForm').classList.toggle('hidden', t.dataset.tab !== 'register');
+      });
+
+      // ---- 登录 ----
+      document.getElementById('loginForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
         var username = document.getElementById('username').value.trim();
         var password = document.getElementById('password').value;
         var msg = document.getElementById('msg');
@@ -51,19 +95,43 @@
             body: JSON.stringify({ username: username, password: password })
           });
           location.href = next;
-        } catch (e) {
-          msg.textContent = '登录失败：' + e.message;
+        } catch (err) {
+          msg.textContent = err.message === 'USER_DISABLED' ? '账号已被停用，请联系管理员'
+            : (err.message === 'TOO_MANY_REQUESTS' ? '尝试过于频繁，请稍后再试' : '登录失败：' + err.message);
           btn.disabled = false;
           btn.textContent = '登 录';
         }
-      }
-
-      document.getElementById('loginBtn').addEventListener('click', tryLogin);
-      document.getElementById('password').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') tryLogin();
       });
-      document.getElementById('username').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') document.getElementById('password').focus();
+
+      // ---- 注册 ----
+      document.getElementById('registerForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var username = document.getElementById('regUsername').value.trim();
+        var display_name = document.getElementById('regDisplay').value.trim();
+        var password = document.getElementById('regPassword').value;
+        var password2 = document.getElementById('regPassword2').value;
+        var msg = document.getElementById('regMsg');
+        if (!/^[a-zA-Z0-9_-]{2,32}$/.test(username)) { msg.textContent = '用户名须为 2-32 位字母、数字、下划线或连字符'; return; }
+        if (password.length < 8) { msg.textContent = '密码至少 8 位'; return; }
+        if (password !== password2) { msg.textContent = '两次输入的密码不一致'; return; }
+        var btn = document.getElementById('regBtn');
+        btn.disabled = true;
+        btn.textContent = '注册中…';
+        msg.textContent = '';
+        try {
+          await api('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username, display_name: display_name, password: password })
+          });
+          location.href = next; // 注册成功即登录
+        } catch (err) {
+          msg.textContent = err.message === 'USERNAME_EXISTS' ? '用户名已被占用'
+            : (err.message === 'REGISTER_DISABLED' ? '本站暂未开放注册'
+            : (err.message === 'TOO_MANY_REQUESTS' ? '尝试过于频繁，请稍后再试' : '注册失败：' + err.message));
+          btn.disabled = false;
+          btn.textContent = '注 册';
+        }
       });
     })();
   </script>

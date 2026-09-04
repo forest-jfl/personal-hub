@@ -15,7 +15,10 @@
       <main class="layout-main" id="mainArea">
         <div class="filter-bar" id="filterBar">
           <input type="text" class="search-input" id="searchInput" placeholder="搜索文章标题…" />
-          <div id="categoryChips" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          <select id="categorySelect" title="按分类筛选">
+            <option value="">全部分类</option>
+          </select>
+          <span id="monthFilterBadge" class="month-badge hidden"></span>
         </div>
 
         <div id="postList"></div>
@@ -52,6 +55,7 @@
 
         <div class="card">
           <h3 class="side-title">归档</h3>
+          <p class="muted" style="margin:0 0 6px;">按发布月份浏览历史文章</p>
           <ul class="side-list" id="archiveList"><li><span class="muted">加载中…</span></li></ul>
         </div>
 
@@ -73,7 +77,7 @@
     (function () {
       'use strict';
       var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
-      var state = { page: 1, pageSize: 10, total: 0, category: qs('category'), q: '' };
+      var state = { page: 1, pageSize: 10, total: 0, category: qs('category'), month: qs('month'), q: '' };
       var view = qs('view'); // '' | categories | archive | about
 
       function navView(el, href, current) {
@@ -138,26 +142,33 @@
 
           document.getElementById('archiveList').innerHTML = m.archive.length
             ? m.archive.map(function (a) {
-                return '<li><span>' + esc(a.month) + '</span><span class="count">' + a.count + ' 篇</span></li>';
+                var active = state.month === a.month;
+                return '<li><a href="/?month=' + encodeURIComponent(a.month) + '" class="' + (active ? 'active' : '') + '">' + esc(a.month) + '</a><span class="count">' + a.count + ' 篇</span></li>';
               }).join('')
             : '<li><span class="muted">暂无归档</span></li>';
 
-          // 筛选条：分类 chips
-          var chips = document.getElementById('categoryChips');
-          chips.innerHTML = '<button class="chip ' + (state.category ? '' : 'active') + '" data-cat="">全部</button>' +
-            m.categories.map(function (c) {
-              return '<button class="chip ' + (state.category === c.name ? 'active' : '') + '" data-cat="' + esc(c.name) + '">' + esc(c.name) + '</button>';
-            }).join('');
-          chips.addEventListener('click', function (e) {
-            var btn = e.target.closest('[data-cat]');
-            if (!btn) return;
-            state.category = btn.dataset.cat;
-            state.page = 1;
-            chips.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('active'); });
-            btn.classList.add('active');
-            loadPosts();
-          });
+          // 分类下拉（替代原 chips）
+          var sel = document.getElementById('categorySelect');
+          var opts = '<option value="">全部分类</option>' + m.categories.map(function (c) {
+            var selected = state.category === c.name ? ' selected' : '';
+            return '<option value="' + esc(c.name) + '"' + selected + '>' + esc(c.name) + '（' + c.count + '）</option>';
+          }).join('');
+          sel.innerHTML = opts;
+          if (state.category) sel.value = state.category;
+          sel.value = state.category || '';
         } catch (e) { /* 侧边栏失败不打断主流程 */ }
+      }
+
+      // 月份筛选徽标（可点击清除）
+      function renderMonthBadge() {
+        var badge = document.getElementById('monthFilterBadge');
+        if (state.month) {
+          badge.classList.remove('hidden');
+          badge.innerHTML = '归档：' + esc(state.month) + ' <a href="/" id="clearMonth" title="清除月份筛选" style="cursor:pointer;">✕</a>';
+        } else {
+          badge.classList.add('hidden');
+          badge.innerHTML = '';
+        }
       }
 
       // 特殊视图：分类总览 / 归档 / 关于
@@ -182,6 +193,22 @@
           loadPosts();
         }, 300);
       });
+      // 分类下拉选择
+      document.getElementById('categorySelect').addEventListener('change', function (e) {
+        state.category = e.target.value;
+        state.page = 1;
+        loadPosts();
+      });
+      // 清除月份筛选（事件委托，徽标内容动态渲染）
+      document.getElementById('filterBar').addEventListener('click', function (e) {
+        if (e.target.id === 'clearMonth') {
+          e.preventDefault();
+          state.month = '';
+          state.page = 1;
+          renderMonthBadge();
+          loadPosts();
+        }
+      });
       document.getElementById('prevBtn').addEventListener('click', function () { state.page--; loadPosts(); window.scrollTo({ top: 0 }); });
       document.getElementById('nextBtn').addEventListener('click', function () { state.page++; loadPosts(); window.scrollTo({ top: 0 }); });
 
@@ -196,11 +223,12 @@
           document.getElementById('quickLinks').innerHTML =
             '<a href="/editor">✎ 写文章</a><a href="/console">🗂 管理控制台</a>';
         }
-        // 分类筛选高亮 + 搜索框预填
+        // 搜索框预填
         if (state.category) {
           var input = document.getElementById('searchInput');
           input.value = '';
         }
+        renderMonthBadge();
         renderView();
         loadMeta();
         loadPosts();

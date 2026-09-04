@@ -60,6 +60,17 @@ export const config = {
     password: strOr('ADMIN_PASSWORD', 'change_me_admin_password'),
     displayName: strOr('ADMIN_DISPLAY_NAME', 'Administrator'),
   },
+
+  auth: {
+    // 是否开放自主注册（暴露公网时可设 REGISTER_ENABLED=false 关闭）
+    allowRegister: boolOr('REGISTER_ENABLED', true),
+  },
 };
+
+// 生产环境使用默认会话密钥属于高危配置，启动时告警
+if (config.env === 'production' && config.session.secret.startsWith('dev_insecure')) {
+  // eslint-disable-next-line no-console
+  console.error('[SECURITY][FATAL] 生产环境正在使用默认 SESSION_SECRET，请立即在 .env 设置强随机密钥！');
+}
 
 export type AppConfig = typeof config;

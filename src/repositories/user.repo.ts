@@ -43,7 +43,20 @@ export async function deleteUser(id: number): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = ?', [id]);
 }
 
+/** 停用 / 启用账号。 */
+export async function updateUserStatus(id: number, status: 'active' | 'disabled'): Promise<void> {
+  await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
+}
+
+/** 更新密码哈希。 */
+export async function updateUserPassword(id: number, password_hash: string): Promise<void> {
+  await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash, id]);
+}
+
+/** 统计处于启用状态的管理员数量（保证至少一名可用管理员）。 */
 export async function countAdmins(): Promise<number> {
-  const [rows] = await pool.query('SELECT COUNT(*) AS c FROM users WHERE role = ?', ['admin']);
+  const [rows] = await pool.query(
+    "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND status = 'active'"
+  );
   return (rows as any[])[0].c as number;
 }

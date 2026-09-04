@@ -212,6 +212,37 @@ textarea { width: 100%; resize: vertical; }
 }
 @media (max-width: 900px) { .editor-grid { flex-direction: column; } }
 
+/* Markdown 工具栏 */
+.md-toolbar {
+  display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
+  padding: 6px; border: 1px solid var(--line); border-radius: 8px;
+  background: #f9fafb; margin-bottom: 10px;
+}
+.md-toolbar button {
+  padding: 5px 10px; border: 1px solid transparent; border-radius: 6px;
+  background: none; cursor: pointer; font-size: 13px; color: var(--text-2); font-family: inherit;
+}
+.md-toolbar button:hover { background: #eef2ff; color: var(--primary); border-color: #dbeafe; }
+
+/* 分类下拉 / 月份筛选徽标 */
+.filter-bar select { min-width: 150px; font-size: 13px; padding: 8px 12px; }
+.month-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; background: #eff6ff;
+  color: var(--primary); font-size: 13px;
+}
+.month-badge a { color: var(--muted); font-size: 12px; }
+.month-badge a:hover { color: var(--danger); }
+.side-list li a.active { color: var(--primary); font-weight: 600; }
+
+/* 登录/注册选项卡 */
+.auth-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.auth-tab {
+  flex: 1; padding: 10px 0; cursor: pointer; font-size: 14px; color: var(--text-2);
+  border: none; background: none; border-bottom: 2px solid transparent; font-family: inherit;
+}
+.auth-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
 /* ---------- 控制台 tabs ---------- */
 .console-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .console-tab {

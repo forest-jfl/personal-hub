@@ -12,6 +12,13 @@ import { logger } from '../utils/logger';
 const router = Router();
 router.use(requireAuth);
 
+// 危险扩展名黑名单：即使下载为附件也不允许上传可执行/脚本类文件
+const BLOCKED_EXT = new Set([
+  '.html', '.htm', '.xhtml', '.svg', '.js', '.mjs', '.cjs', '.css',
+  '.exe', '.dll', '.bat', '.cmd', '.com', '.scr', '.msi', '.ps1',
+  '.php', '.jsp', '.asp', '.aspx', '.sh', '.py', '.jar', '.vbs', '.wsf',
+]);
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     const dir = path.resolve(config.upload.dir);
@@ -19,23 +26,49 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname).toLowerCase();
     const name = crypto.randomBytes(16).toString('hex') + ext;
     cb(null, name);
   },
 });
 
-const upload = multer({ storage, limits: { fileSize: config.upload.maxFileSize } });
+const upload = multer({
+  storage,
+  limits: { fileSize: config.upload.maxFileSize, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (BLOCKED_EXT.has(ext)) {
+      cb(new HttpError(400, `BLOCKED_FILE_TYPE:${ext}`));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req, res, next) => {
   try {
-    res.json({ files: await filesRepo.listFiles() });
+    // 管理员可见全部，普通用户仅见自己上传的文件
+    const ownerId = req.session!.role === 'admin' ? undefined : req.session!.userId;
+    res.json({ files: await filesRepo.listFiles(ownerId) });
   } catch (e) {
     next(e);
   }
 });
 
-router.post('/', upload.single('file'), async (req, res, next) => {
+// 包装 multer 以便把 multer 错误映射为可读的 HTTP 状态码
+function uploadMiddleware(req: any, res: any, next: any) {
+  upload.single('file')(req, res, (err: any) => {
+    if (!err) return next();
+    if (err instanceof HttpError) return next(err);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return next(new HttpError(413, 'FILE_TOO_LARGE'));
+    }
+    logger.warn({ err }, '上传失败');
+    next(new HttpError(400, 'UPLOAD_ERROR'));
+  });
+}
+
+router.post('/', uploadMiddleware, async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'NO_FILE');
     const meta = await filesRepo.createFile({
@@ -44,6 +77,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
       mime: req.file.mimetype,
       size: req.file.size,
       owner_id: req.session!.userId!,
+      public_token: crypto.randomBytes(16).toString('hex'),
     });
     res.status(201).json({ file: meta });
   } catch (e) {

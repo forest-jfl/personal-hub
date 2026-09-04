@@ -11,6 +11,7 @@ import postsRouter from './routes/posts';
 import filesRouter from './routes/files';
 import publicRouter from './routes/public';
 import { requireAuth } from './middleware/auth';
+import { securityHeaders, csrfOriginCheck } from './middleware/security';
 import { errorHandler, notFound } from './middleware/error';
 // 显式引入 session 类型扩展（ts-node 按需编译不会自动加载未引用的声明文件）
 import './types/session-augment';
@@ -22,6 +23,11 @@ export function createApp(): Express {
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '5mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // 安全响应头（CSP / nosniff / 禁iframe 等）
+  app.use(securityHeaders);
+  // CSRF 防护：写操作校验 Origin（同源或 CORS 白名单）
+  app.use(csrfOriginCheck);
 
   // CORS：前端托管在 git 平台时，通过 CORS_ORIGINS 白名单允许跨域调用 API
   app.use((req, res, next) => {

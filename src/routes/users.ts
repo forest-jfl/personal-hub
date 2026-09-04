@@ -7,6 +7,7 @@ import {
   createUser,
   listUsers,
   deleteUser,
+  updateUserStatus,
   countAdmins,
   findById,
   findByUsername,
@@ -43,6 +44,29 @@ router.post('/', validateBody(createSchema), async (req, res, next) => {
       role,
     });
     res.status(201).json({ user });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const statusSchema = z.object({
+  status: z.enum(['active', 'disabled']),
+});
+
+/** 停用 / 启用账号（管理员操作；保护自己与最后一名可用管理员）。 */
+router.put('/:id/status', validateBody(statusSchema), async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { status } = req.body;
+    if (req.session!.userId === id) throw new HttpError(400, 'CANNOT_DISABLE_SELF');
+    const target = await findById(id);
+    if (!target) throw new HttpError(404, 'USER_NOT_FOUND');
+    if (target.role === 'admin' && status === 'disabled') {
+      const admins = await countAdmins();
+      if (admins <= 1) throw new HttpError(400, 'CANNOT_DISABLE_LAST_ADMIN');
+    }
+    await updateUserStatus(id, status);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

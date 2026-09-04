@@ -37,6 +37,8 @@ export interface ListFilter {
   status?: PostStatus;
   author_id?: number;
   category?: string;
+  /** 归档月份，格式 YYYY-MM */
+  month?: string;
   q?: string;
   page?: number;
   pageSize?: number;
@@ -67,6 +69,10 @@ export async function listPosts(filter?: ListFilter): Promise<Post[] | PageResul
   if (filter?.category) {
     where.push('p.category = ?');
     params.push(filter.category);
+  }
+  if (filter?.month) {
+    where.push("DATE_FORMAT(p.created_at, '%Y-%m') = ?");
+    params.push(filter.month);
   }
   if (filter?.q) {
     where.push('p.title LIKE ?');

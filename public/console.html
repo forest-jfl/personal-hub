@@ -15,6 +15,7 @@
         <button class="console-tab active" data-tab="posts">文章管理</button>
         <button class="console-tab" data-tab="files">文件管理</button>
         <button class="console-tab hidden" data-tab="users" id="tabUsers">用户管理</button>
+        <button class="console-tab" data-tab="account" id="tabAccount">账号设置</button>
       </div>
 
       <div id="msg" style="min-height:18px;margin-bottom:10px;" class="muted"></div>
@@ -57,9 +58,28 @@
           <button class="btn btn-sm" id="uCreate">创建用户</button>
         </div>
         <table class="table">
-          <thead><tr><th>ID</th><th>用户名</th><th>显示名</th><th>角色</th><th>创建时间</th><th style="width:70px;">操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>创建时间</th><th style="width:130px;">操作</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
+      </section>
+
+      <!-- 账号设置（所有登录用户）：修改密码 -->
+      <section id="panel-account" class="hidden" style="max-width:420px;">
+        <h3 style="margin:0 0 4px;">修改密码</h3>
+        <p class="muted" style="margin:0 0 12px;">修改成功后将自动退出，请使用新密码重新登录。</p>
+        <div class="form-item">
+          <label for="cpOld">当前密码</label>
+          <input type="password" id="cpOld" autocomplete="current-password" style="width:100%;" />
+        </div>
+        <div class="form-item">
+          <label for="cpNew">新密码（至少 8 位）</label>
+          <input type="password" id="cpNew" autocomplete="new-password" style="width:100%;" />
+        </div>
+        <div class="form-item">
+          <label for="cpNew2">确认新密码</label>
+          <input type="password" id="cpNew2" autocomplete="new-password" style="width:100%;" />
+        </div>
+        <button class="btn" id="cpBtn">确认修改</button>
       </section>
     </div>
   </div>
@@ -71,7 +91,7 @@
   <script>
     (function () {
       'use strict';
-      var api = HUB.api, esc = HUB.esc;
+      var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
       var me = null;
       var msgEl = document.getElementById('msg');
       function msg(text, cls) { msgEl.textContent = text; msgEl.className = cls || 'muted'; }
@@ -153,18 +173,48 @@
       });
 
       // ---- 用户管理（管理员） ----
+      var myId = null;
       async function loadUsers() {
         try {
           var d = await api('/api/users');
           document.getElementById('usersBody').innerHTML = d.users.map(function (u) {
-            return '<tr>' +
+            var disabled = u.status === 'disabled';
+            var statusHtml = disabled ? '<span class="err">已停用</span>' : '<span class="ok">正常</span>';
+            var ops = '';
+            if (u.id !== myId) {
+              ops = (disabled
+                ? '<button class="link-btn" data-enable="' + u.id + '">启用</button>'
+                : '<button class="link-btn" data-disable="' + u.id + '">停用</button>') +
+                ' · <button class="link-btn danger" data-del="' + u.id + '">删除</button>';
+            } else {
+              ops = '<span class="muted">当前用户</span>';
+            }
+            return '<tr' + (disabled ? ' style="opacity:.55;"' : '') + '>' +
               '<td>' + u.id + '</td><td>' + esc(u.username) + '</td><td>' + esc(u.display_name) + '</td>' +
               '<td>' + (u.role === 'admin' ? '管理员' : '普通用户') + '</td>' +
+              '<td>' + statusHtml + '</td>' +
               '<td class="muted">' + HUB.fmtDate(u.created_at) + '</td>' +
-              '<td><button class="link-btn danger" data-del="' + u.id + '">删除</button></td>' +
+              '<td>' + ops + '</td>' +
               '</tr>';
-          }).join('') || '<tr><td colspan="6" class="muted">暂无其他用户</td></tr>';
+          }).join('') || '<tr><td colspan="7" class="muted">暂无其他用户</td></tr>';
         } catch (e) { msg('用户加载失败：' + e.message, 'err'); }
+      }
+      async function setUserStatus(id, status, tip) {
+        if (!confirm(tip)) return;
+        try {
+          await api('/api/users/' + id + '/status', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: status })
+          });
+          msg(status === 'disabled' ? '已停用' : '已启用', 'ok');
+          loadUsers();
+        } catch (err) {
+          var m = err.message;
+          if (m === 'CANNOT_DISABLE_SELF') m = '不能停用自己';
+          else if (m === 'CANNOT_DISABLE_LAST_ADMIN') m = '不能停用最后一名可用管理员';
+          msg('操作失败：' + m, 'err');
+        }
       }
       document.getElementById('uCreate').addEventListener('click', async function () {
         var username = document.getElementById('uName').value.trim();
@@ -185,16 +235,47 @@
         } catch (e) { msg('创建失败：' + e.message, 'err'); }
       });
       document.getElementById('usersBody').addEventListener('click', async function (e) {
-        var id = e.target.dataset.del;
-        if (!id) return;
-        if (!confirm('确定删除该用户？')) return;
-        try { await api('/api/users/' + id, { method: 'DELETE' }); msg('已删除', 'ok'); loadUsers(); }
+        var disable = e.target.dataset.disable, enable = e.target.dataset.enable, del = e.target.dataset.del;
+        if (disable) return setUserStatus(disable, 'disabled', '停用后该用户将无法登录，确定停用？');
+        if (enable) return setUserStatus(enable, 'active', '确定启用该账号？');
+        if (!del) return;
+        if (!confirm('删除用户将同时删除其全部文章与文件，确定删除？')) return;
+        try { await api('/api/users/' + del, { method: 'DELETE' }); msg('已删除', 'ok'); loadUsers(); }
         catch (err) { msg('删除失败：' + err.message, 'err'); }
       });
 
+      // ---- 账号设置（所有用户）：修改密码 ----
+      document.getElementById('cpBtn').addEventListener('click', async function () {
+        var oldPwd = document.getElementById('cpOld').value;
+        var newPwd = document.getElementById('cpNew').value;
+        var newPwd2 = document.getElementById('cpNew2').value;
+        if (!oldPwd || !newPwd) { msg('请填写完整', 'err'); return; }
+        if (newPwd.length < 8) { msg('新密码至少 8 位', 'err'); return; }
+        if (newPwd !== newPwd2) { msg('两次输入的新密码不一致', 'err'); return; }
+        var btn = this;
+        btn.disabled = true;
+        try {
+          await api('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+          });
+          alert('密码已修改，请重新登录');
+          location.href = '/login';
+        } catch (err) {
+          var m = err.message;
+          if (m === 'WRONG_OLD_PASSWORD') m = '当前密码不正确';
+          else if (m === 'TOO_MANY_REQUESTS') m = '尝试过于频繁，请稍后再试';
+          msg('修改失败：' + m, 'err');
+          btn.disabled = false;
+        }
+      });
+
+      // ---- Tab 初始化（支持 ?tab= 直达） ----
       (async function init() {
         me = await HUB.requireMe();
         if (!me) return;
+        myId = me.id;
         HUB.renderNav(me);
         if (me.role === 'admin') {
           document.getElementById('tabUsers').classList.remove('hidden');
@@ -202,6 +283,11 @@
         }
         loadPosts();
         loadFiles();
+        var want = qs('tab');
+        if (want) {
+          var tab = document.querySelector('.console-tab[data-tab="' + want + '"]');
+          if (tab && !tab.classList.contains('hidden')) tab.click();
+        }
       })();
     })();
   </script>

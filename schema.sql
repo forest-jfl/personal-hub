@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   display_name VARCHAR(128) NOT NULL DEFAULT '',
   password_hash VARCHAR(255) NOT NULL,
   role         ENUM('admin', 'user') NOT NULL DEFAULT 'user',
+  status       ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_username (username)
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS files (
   mime          VARCHAR(128) NOT NULL DEFAULT '',
   size          BIGINT       NOT NULL DEFAULT 0,
   owner_id      INT          NOT NULL,
+  public_token  VARCHAR(64)  NOT NULL DEFAULT '',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_owner (owner_id),

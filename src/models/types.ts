@@ -1,5 +1,6 @@
 export type Role = 'admin' | 'user';
 export type PostStatus = 'draft' | 'published';
+export type UserStatus = 'active' | 'disabled';
 
 export interface User {
   id: number;
@@ -7,6 +8,7 @@ export interface User {
   display_name: string;
   password_hash: string;
   role: Role;
+  status: UserStatus;
   created_at: Date;
 }
 
@@ -33,5 +35,6 @@ export interface FileMeta {
   mime: string;
   size: number;
   owner_id: number;
+  public_token: string;
   created_at: Date;
 }
