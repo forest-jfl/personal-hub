@@ -38,6 +38,8 @@
           <input type="file" id="fileInput" />
           <button class="btn btn-sm" id="uploadBtn">上传</button>
           <span class="muted" id="uploadMsg"></span>
+          <span style="flex:1;"></span>
+          <span class="muted" id="quotaInfo"></span>
         </div>
         <table class="table">
           <thead><tr><th>文件名</th><th>大小</th><th>上传者</th><th>时间</th><th style="width:120px;">操作</th></tr></thead>
@@ -91,7 +93,7 @@
   <script>
     (function () {
       'use strict';
-      var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
+      var api = HUB.api, esc = HUB.esc, qs = HUB.qs, url = HUB.url;
       var me = null;
       var msgEl = document.getElementById('msg');
       function msg(text, cls) { msgEl.textContent = text; msgEl.className = cls || 'muted'; }
@@ -125,7 +127,7 @@
       }
       document.getElementById('postsBody').addEventListener('click', async function (e) {
         var edit = e.target.dataset.edit, del = e.target.dataset.del;
-        if (edit) { location.href = '/editor?id=' + edit; return; }
+        if (edit) { location.href = url('/editor?id=' + edit); return; }
         if (del) {
           if (!confirm('确定删除该文章？')) return;
           try { await api('/api/posts/' + del, { method: 'DELETE' }); msg('已删除', 'ok'); loadPosts(); }
@@ -137,6 +139,10 @@
       async function loadFiles() {
         try {
           var d = await api('/api/files');
+          var usedMB = (d.used / 1048576).toFixed(1), quotaMB = Math.round(d.quota / 1048576);
+          var maxMB = Math.round(d.maxFileSize / 1048576);
+          document.getElementById('quotaInfo').textContent =
+            '空间用量 ' + usedMB + ' / ' + quotaMB + ' MB · 单文件 ≤ ' + maxMB + ' MB';
           document.getElementById('filesBody').innerHTML = d.files.map(function (f) {
             return '<tr>' +
               '<td>' + esc(f.original_name) + '</td>' +
@@ -162,7 +168,14 @@
           document.getElementById('fileInput').value = '';
           msg('上传成功', 'ok');
           loadFiles();
-        } catch (e) { upMsg.textContent = '上传失败：' + e.message; }
+        } catch (e) {
+          var m = e.message;
+          if (m === 'QUOTA_EXCEEDED') m = '文件空间已用完，请清理后重试';
+          else if (m === 'FILE_TOO_LARGE') m = '文件超过单文件大小上限';
+          else if (m && m.indexOf('BLOCKED_FILE_TYPE') === 0) m = '不允许上传该类型文件';
+          else m = '上传失败：' + m;
+          upMsg.textContent = m;
+        }
       });
       document.getElementById('filesBody').addEventListener('click', async function (e) {
         var id = e.target.dataset.del;
@@ -261,7 +274,7 @@
             body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
           });
           alert('密码已修改，请重新登录');
-          location.href = '/login';
+          location.href = url('/login');
         } catch (err) {
           var m = err.message;
           if (m === 'WRONG_OLD_PASSWORD') m = '当前密码不正确';

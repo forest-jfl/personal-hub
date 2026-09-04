@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   role         ENUM('admin', 'user') NOT NULL DEFAULT 'user',
   status       ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+  register_ip  VARCHAR(64)  NOT NULL DEFAULT '',
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_username (username)

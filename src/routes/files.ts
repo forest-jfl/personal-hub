@@ -8,7 +8,6 @@ import { HttpError } from '../middleware/error';
 import * as filesRepo from '../repositories/file.repo';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-
 const router = Router();
 router.use(requireAuth);
 
@@ -49,7 +48,16 @@ router.get('/', async (req, res, next) => {
   try {
     // 管理员可见全部，普通用户仅见自己上传的文件
     const ownerId = req.session!.role === 'admin' ? undefined : req.session!.userId;
-    res.json({ files: await filesRepo.listFiles(ownerId) });
+    const files = await filesRepo.listFiles(ownerId);
+    const quotaBytes = config.upload.quotaPerUserMB * 1024 * 1024;
+    // 用量按本人统计（管理员查看全量列表时，用量为全部文件总和）
+    const used = files.reduce((sum, f) => sum + Number(f.size || 0), 0);
+    res.json({
+      files,
+      used,
+      quota: quotaBytes,
+      maxFileSize: config.upload.maxFileSize,
+    });
   } catch (e) {
     next(e);
   }
@@ -71,8 +79,19 @@ function uploadMiddleware(req: any, res: any, next: any) {
 router.post('/', uploadMiddleware, async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'NO_FILE');
+    // 修复 multer latin1 解码导致的中文名乱码（busboy 默认按 latin1 解码文件名参数）
+    const originalName = filesRepo.decodeOriginalName(req.file.originalname);
+    // 账号空间配额检查：已用 + 本次文件 ≤ 配额，超出则拒绝并清理临时文件
+    const quotaBytes = config.upload.quotaPerUserMB * 1024 * 1024;
+    const used = await filesRepo.sumUserUsedBytes(req.session!.userId!);
+    if (used + req.file.size > quotaBytes) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch { /* 清理失败不影响响应 */ }
+      throw new HttpError(403, 'QUOTA_EXCEEDED');
+    }
     const meta = await filesRepo.createFile({
-      original_name: req.file.originalname,
+      original_name: originalName,
       stored_name: req.file.filename,
       mime: req.file.mimetype,
       size: req.file.size,

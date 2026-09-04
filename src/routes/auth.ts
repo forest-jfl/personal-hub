@@ -8,6 +8,7 @@ import {
   findByUsername,
   createUser,
   updateUserPassword,
+  countByRegisterIp,
   toPublicUser,
 } from '../repositories/user.repo';
 import { requireAuth } from '../middleware/auth';
@@ -73,12 +74,19 @@ router.post(
       }
       const { username, password, display_name } = req.body;
       if (await findByUsername(username)) throw new HttpError(409, 'USERNAME_EXISTS');
+      // 同 IP 账号数限制（管理员创建的账号 register_ip 为空不计入）
+      const ip = req.ip || req.socket.remoteAddress || '';
+      const registered = await countByRegisterIp(ip);
+      if (registered >= config.auth.maxAccountsPerIp) {
+        throw new HttpError(403, 'IP_ACCOUNT_LIMIT');
+      }
       const hash = await hashPassword(password);
       const user = await createUser({
         username,
         display_name: display_name || username,
         password_hash: hash,
         role: 'user',
+        register_ip: ip,
       });
       logger.info({ username }, '新用户注册');
       req.session.regenerate((err) => {

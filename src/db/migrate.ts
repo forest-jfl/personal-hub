@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from './connection';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { backfillPublicTokens } from '../repositories/file.repo';
+import { backfillPublicTokens, fixMojibakeNames } from '../repositories/file.repo';
 
 // 构建后位于 dist/db，__dirname/../../schema.sql 指向项目根；ts-node 下同理。
 const SCHEMA_PATH = path.resolve(__dirname, '..', '..', 'schema.sql');
@@ -37,6 +37,7 @@ async function ensureColumns(): Promise<void> {
     { table: 'posts', column: 'category', ddl: "ALTER TABLE posts ADD COLUMN category VARCHAR(64) NOT NULL DEFAULT ''" },
     { table: 'posts', column: 'views', ddl: 'ALTER TABLE posts ADD COLUMN views INT NOT NULL DEFAULT 0' },
     { table: 'users', column: 'status', ddl: "ALTER TABLE users ADD COLUMN status ENUM('active', 'disabled') NOT NULL DEFAULT 'active'" },
+    { table: 'users', column: 'register_ip', ddl: "ALTER TABLE users ADD COLUMN register_ip VARCHAR(64) NOT NULL DEFAULT ''" },
     { table: 'files', column: 'public_token', ddl: "ALTER TABLE files ADD COLUMN public_token VARCHAR(64) NOT NULL DEFAULT ''" },
   ];
   for (const item of wanted) {
@@ -53,6 +54,9 @@ async function ensureColumns(): Promise<void> {
   // 为存量文件补发公开令牌
   const backfilled = await backfillPublicTokens();
   if (backfilled > 0) logger.info({ count: backfilled }, '已为存量文件补发公开令牌');
+  // 修复历史乱码文件名（multer latin1 解码问题）
+  const fixedNames = await fixMojibakeNames();
+  if (fixedNames > 0) logger.info({ count: fixedNames }, '已修复乱码文件名');
 }
 
 /** 若不存在则播种初始管理员（凭据来自环境变量）。 */

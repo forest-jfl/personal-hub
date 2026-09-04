@@ -97,9 +97,9 @@
             box.innerHTML = '<div class="card" style="text-align:center;padding:40px 0;"><div class="muted">暂无文章</div></div>';
           } else {
             box.innerHTML = d.posts.map(function (p) {
-              var cat = p.category ? '<a class="tag" href="/?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
+              var cat = p.category ? '<a class="tag" href="./?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
               return '<div class="card post-card">' +
-                '<h2><a href="/post?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h2>' +
+                '<h2><a href="./post.html?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h2>' +
                 '<div class="summary">' + esc(p.summary || '（无摘要）') + '</div>' +
                 '<div class="post-meta">' +
                 '  <span>' + esc(p.author_name || '佚名') + '</span>' +
@@ -130,20 +130,20 @@
 
           document.getElementById('hotList').innerHTML = m.hot.length
             ? m.hot.map(function (h, i) {
-                return '<li><a href="/post?slug=' + encodeURIComponent(h.slug) + '">' + (i + 1) + '. ' + esc(h.title) + '</a><span class="count">' + h.views + '</span></li>';
+                return '<li><a href="./post.html?slug=' + encodeURIComponent(h.slug) + '">' + (i + 1) + '. ' + esc(h.title) + '</a><span class="count">' + h.views + '</span></li>';
               }).join('')
             : '<li><span class="muted">暂无数据</span></li>';
 
           document.getElementById('catList').innerHTML = m.categories.length
             ? m.categories.map(function (c) {
-                return '<li><a href="/?category=' + encodeURIComponent(c.name) + '">' + esc(c.name) + '</a><span class="count">' + c.count + '</span></li>';
+                return '<li><a href="./?category=' + encodeURIComponent(c.name) + '">' + esc(c.name) + '</a><span class="count">' + c.count + '</span></li>';
               }).join('')
             : '<li><span class="muted">暂无分类</span></li>';
 
           document.getElementById('archiveList').innerHTML = m.archive.length
             ? m.archive.map(function (a) {
                 var active = state.month === a.month;
-                return '<li><a href="/?month=' + encodeURIComponent(a.month) + '" class="' + (active ? 'active' : '') + '">' + esc(a.month) + '</a><span class="count">' + a.count + ' 篇</span></li>';
+                return '<li><a href="./?month=' + encodeURIComponent(a.month) + '" class="' + (active ? 'active' : '') + '">' + esc(a.month) + '</a><span class="count">' + a.count + ' 篇</span></li>';
               }).join('')
             : '<li><span class="muted">暂无归档</span></li>';
 
@@ -164,7 +164,7 @@
         var badge = document.getElementById('monthFilterBadge');
         if (state.month) {
           badge.classList.remove('hidden');
-          badge.innerHTML = '归档：' + esc(state.month) + ' <a href="/" id="clearMonth" title="清除月份筛选" style="cursor:pointer;">✕</a>';
+          badge.innerHTML = '归档：' + esc(state.month) + ' <a href="./" id="clearMonth" title="清除月份筛选" style="cursor:pointer;">✕</a>';
         } else {
           badge.classList.add('hidden');
           badge.innerHTML = '';
@@ -221,7 +221,7 @@
           document.getElementById('sideName').textContent = me.display_name || me.username;
           document.getElementById('sideDesc').textContent = me.role === 'admin' ? '管理员' : '站点用户';
           document.getElementById('quickLinks').innerHTML =
-            '<a href="/editor">✎ 写文章</a><a href="/console">🗂 管理控制台</a>';
+            '<a href="' + HUB.url('/editor') + '">✎ 写文章</a><a href="' + HUB.url('/console') + '">🗂 管理控制台</a>';
         }
         // 搜索框预填
         if (state.category) {

@@ -9,16 +9,11 @@
 <body>
   <div class="login-wrap">
     <div class="login-logo">
-      <a class="brand" href="/">Personal<span>Hub</span></a>
+      <a class="brand" href="./">Personal<span>Hub</span></a>
       <p>登录后可写作、管理文件与文章</p>
     </div>
     <div class="card">
-      <div class="auth-tabs">
-        <button class="auth-tab active" data-tab="login">登 录</button>
-        <button class="auth-tab" data-tab="register">注 册</button>
-      </div>
-
-      <!-- 登录表单 -->
+      <!-- 登录表单（默认显示） -->
       <form id="loginForm">
         <div class="form-item">
           <label for="username">用户名</label>
@@ -30,9 +25,10 @@
         </div>
         <div id="msg" class="err" style="min-height:18px;margin-bottom:8px;"></div>
         <button class="btn" id="loginBtn" type="submit">登 录</button>
+        <button class="btn btn-ghost btn-block" id="showRegister" type="button">注册新账号</button>
       </form>
 
-      <!-- 注册表单 -->
+      <!-- 注册表单（点击"注册新账号"后显示） -->
       <form id="registerForm" class="hidden">
         <div class="form-item">
           <label for="regUsername">用户名（2-32 位字母/数字/下划线/连字符）</label>
@@ -52,10 +48,11 @@
         </div>
         <div id="regMsg" class="err" style="min-height:18px;margin-bottom:8px;"></div>
         <button class="btn" id="regBtn" type="submit">注 册</button>
+        <button class="btn btn-ghost btn-block" id="showLogin" type="button">返回登录</button>
         <p class="muted" style="margin:10px 0 0;font-size:12px;">注册后即可撰写文章，账号由管理员管理。</p>
       </form>
 
-      <div class="login-foot"><a href="/">← 返回首页</a></div>
+      <div class="login-foot"><a href="./">← 返回首页</a></div>
     </div>
   </div>
 
@@ -65,16 +62,18 @@
     (function () {
       'use strict';
       var api = HUB.api, qs = HUB.qs;
-      var next = qs('next') || '/';
+      var next = qs('next') || './';
+      // 防开放重定向：仅允许本站相对路径或同源绝对地址
+      if (next.indexOf('://') !== -1 && next.indexOf(location.origin + '/') !== 0) next = './';
 
-      // Tab 切换
-      document.querySelector('.auth-tabs').addEventListener('click', function (e) {
-        var t = e.target.closest('.auth-tab');
-        if (!t) return;
-        document.querySelectorAll('.auth-tab').forEach(function (x) { x.classList.remove('active'); });
-        t.classList.add('active');
-        document.getElementById('loginForm').classList.toggle('hidden', t.dataset.tab !== 'login');
-        document.getElementById('registerForm').classList.toggle('hidden', t.dataset.tab !== 'register');
+      // 表单切换：登录 ⇄ 注册
+      document.getElementById('showRegister').addEventListener('click', function () {
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('registerForm').classList.remove('hidden');
+      });
+      document.getElementById('showLogin').addEventListener('click', function () {
+        document.getElementById('registerForm').classList.add('hidden');
+        document.getElementById('loginForm').classList.remove('hidden');
       });
 
       // ---- 登录 ----
@@ -126,9 +125,13 @@
           });
           location.href = next; // 注册成功即登录
         } catch (err) {
-          msg.textContent = err.message === 'USERNAME_EXISTS' ? '用户名已被占用'
-            : (err.message === 'REGISTER_DISABLED' ? '本站暂未开放注册'
-            : (err.message === 'TOO_MANY_REQUESTS' ? '尝试过于频繁，请稍后再试' : '注册失败：' + err.message));
+          var m = err.message;
+          if (m === 'USERNAME_EXISTS') m = '用户名已被占用';
+          else if (m === 'REGISTER_DISABLED') m = '本站暂未开放注册';
+          else if (m === 'TOO_MANY_REQUESTS') m = '尝试过于频繁，请稍后再试';
+          else if (m === 'IP_ACCOUNT_LIMIT') m = '该网络环境下注册账号数已达上限，请联系管理员';
+          else m = '注册失败：' + m;
+          msg.textContent = m;
           btn.disabled = false;
           btn.textContent = '注 册';
         }

@@ -53,6 +53,8 @@ export const config = {
   upload: {
     dir: strOr('UPLOAD_DIR', './uploads'),
     maxFileSize: intOr('MAX_FILE_SIZE', 50 * 1024 * 1024),
+    // 每个账号的文件空间总配额（MB）
+    quotaPerUserMB: intOr('FILE_QUOTA_MB', 100),
   },
 
   admin: {
@@ -64,6 +66,8 @@ export const config = {
   auth: {
     // 是否开放自主注册（暴露公网时可设 REGISTER_ENABLED=false 关闭）
     allowRegister: boolOr('REGISTER_ENABLED', true),
+    // 同一 IP 最多可注册的账号数（防批量刷号；管理员在控制台创建的账号不受限）
+    maxAccountsPerIp: intOr('MAX_ACCOUNTS_PER_IP', 10),
   },
 };
 

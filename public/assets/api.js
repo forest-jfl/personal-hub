@@ -50,6 +50,10 @@
   function renderNav(me) {
     var nav = document.getElementById('site-nav');
     if (!nav) return;
+    // editor/console 仅由后端同源托管：任何部署形态下都指向 API_BASE，
+    // 避免 Pages 托管版里相对路径指向 Pages 域名而 404
+    var editorHref = url('/editor');
+    var consoleHref = url('/console');
     var loginArea;
     if (me) {
       var initial = (me.display_name || me.username || '?').slice(0, 1).toUpperCase();
@@ -63,23 +67,23 @@
         '  </button>' +
         '  <div class="dropdown hidden" id="userMenu">' +
         '    <div class="dropdown-role">' + esc(roleTag) + ' · ' + esc(me.username) + '</div>' +
-        '    <a href="/editor">✎ 写文章</a>' +
-        '    <a href="/console">🗂 管理控制台</a>' +
-        '    <a href="/console?tab=account">🔑 修改密码</a>' +
+        '    <a href="' + editorHref + '">✎ 写文章</a>' +
+        '    <a href="' + consoleHref + '">🗂 管理控制台</a>' +
+        '    <a href="' + consoleHref + '?tab=account">🔑 修改密码</a>' +
         '    <a href="#" id="logoutLink">⎋ 退出登录</a>' +
         '  </div>' +
         '</div>';
     } else {
-      loginArea = '<a class="btn btn-primary btn-sm" href="/login">登录</a>';
+      loginArea = '<a class="btn btn-primary btn-sm" href="' + url('/login') + '">登录</a>';
     }
     nav.innerHTML =
       '<div class="nav-inner">' +
-      '  <a class="brand" href="/">Personal<span>Hub</span></a>' +
+      '  <a class="brand" href="./">Personal<span>Hub</span></a>' +
       '  <nav class="nav-links">' +
-      '    <a href="/" class="' + (location.pathname === '/' ? 'active' : '') + '">首页</a>' +
-      '    <a href="/?view=categories">分类</a>' +
-      '    <a href="/?view=archive">归档</a>' +
-      '    <a href="/?view=about">关于</a>' +
+      '    <a href="./" class="' + (location.pathname === '/' || /\/(index\.html)?$/.test(location.pathname) ? 'active' : '') + '">首页</a>' +
+      '    <a href="./?view=categories">分类</a>' +
+      '    <a href="./?view=archive">归档</a>' +
+      '    <a href="./?view=about">关于</a>' +
       '  </nav>' +
       '  <div class="nav-spacer"></div>' +
       loginArea +
@@ -111,11 +115,13 @@
     }
   }
 
-  /** 获取当前用户；未登录跳转登录页。 */
+  /** 获取当前用户；未登录跳转登录页（登录后回跳原页面）。 */
   async function requireMe() {
     var me = await fetchMe();
     if (!me) {
-      location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+      // next 携带完整地址，兼容 Pages 子路径部署；登录侧校验防开放重定向
+      var back = encodeURIComponent(location.href);
+      location.href = url('/login?next=' + back);
       return null;
     }
     return me;

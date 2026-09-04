@@ -27,7 +27,7 @@
           <ul class="side-list" id="hotList"><li><span class="muted">加载中…</span></li></ul>
         </div>
         <div class="card">
-          <a class="btn btn-ghost btn-sm" href="/" style="width:100%;text-align:center;">← 返回首页</a>
+          <a class="btn btn-ghost btn-sm" href="./" style="width:100%;text-align:center;">← 返回首页</a>
         </div>
       </aside>
     </div>
@@ -50,7 +50,7 @@
           var d = await api('/api/public/posts/' + encodeURIComponent(slug));
           var p = d.post;
           document.title = p.title + ' · Personal Hub';
-          var cat = p.category ? '<a class="tag" href="/?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
+          var cat = p.category ? '<a class="tag" href="./?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
           box.innerHTML =
             '<h1>' + esc(p.title) + '</h1>' +
             '<div class="post-meta" style="margin-bottom:16px;">' +

@@ -11,10 +11,11 @@ export async function createUser(input: {
   display_name: string;
   password_hash: string;
   role: Role;
+  register_ip?: string;
 }): Promise<User> {
   const [result] = await pool.query(
-    'INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)',
-    [input.username, input.display_name, input.password_hash, input.role]
+    'INSERT INTO users (username, display_name, password_hash, role, register_ip) VALUES (?, ?, ?, ?, ?)',
+    [input.username, input.display_name, input.password_hash, input.role, input.register_ip || '']
   );
   const id = (result as any).insertId;
   const created = await findById(id);
@@ -57,6 +58,15 @@ export async function updateUserPassword(id: number, password_hash: string): Pro
 export async function countAdmins(): Promise<number> {
   const [rows] = await pool.query(
     "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND status = 'active'"
+  );
+  return (rows as any[])[0].c as number;
+}
+
+/** 统计某 IP 已注册的账号数（自主注册记录，管理员创建的不计）。 */
+export async function countByRegisterIp(ip: string): Promise<number> {
+  const [rows] = await pool.query(
+    "SELECT COUNT(*) AS c FROM users WHERE register_ip = ? AND register_ip <> ''",
+    [ip]
   );
   return (rows as any[])[0].c as number;
 }

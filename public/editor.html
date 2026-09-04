@@ -17,7 +17,7 @@
         <datalist id="categoryList"></datalist>
         <button class="btn" id="publishBtn">立即发布</button>
         <button class="btn btn-ghost" id="draftBtn">存为草稿</button>
-        <a class="btn btn-ghost" href="/console">文章列表</a>
+        <a class="btn btn-ghost" id="consoleLink" href="/console">文章列表</a>
       </div>
 
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
@@ -177,7 +177,11 @@
           msg('图片已插入', 'ok');
           scheduleAutoSave();
         } catch (e) {
-          msg('图片上传失败：' + e.message, 'err');
+          var m = e.message;
+          if (m === 'QUOTA_EXCEEDED') m = '文件空间已用完，请先清理不再使用的文件';
+          else if (m === 'FILE_TOO_LARGE') m = '图片超过单文件大小上限';
+          else if (m && m.indexOf('BLOCKED_FILE_TYPE') === 0) m = '不允许上传该类型文件';
+          msg('图片上传失败：' + m, 'err');
         }
       }
       document.getElementById('imageInput').addEventListener('change', function (e) {
@@ -251,7 +255,7 @@
             });
             editingId = d.post.id;
             loadedStatus = status;
-            history.replaceState(null, '', '/editor?id=' + editingId);
+            try { history.replaceState(null, '', url('/editor?id=' + editingId)); } catch (e) { /* 跨源页面忽略 */ }
             localStorage.removeItem(LS_KEY);
           }
           dirty = false;
@@ -356,6 +360,7 @@
       }
 
       (async function init() {
+        document.getElementById('consoleLink').href = url('/console');
         var me = await HUB.requireMe();
         if (!me) return;
         HUB.renderNav(me);

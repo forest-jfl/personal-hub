@@ -84,7 +84,15 @@ export function createApp(): Express {
   const publicDir = path.resolve(__dirname, '..', 'public');
 
   // 静态资源（assets/style.css、assets/api.js、config.js 等）
-  app.use(express.static(publicDir, { index: false }));
+  // HTML 页面禁缓存，确保前端更新后浏览器不会用旧页面调用新接口
+  app.use(express.static(publicDir, {
+    index: false,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
 
   // 博客主页（应用主入口）
   app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
