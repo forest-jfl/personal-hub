@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Hub · 个人博客</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header id="site-nav"></header>
+
+  <div class="page">
+    <div class="layout">
+      <!-- 左侧主栏 -->
+      <main class="layout-main" id="mainArea">
+        <div class="filter-bar" id="filterBar">
+          <input type="text" class="search-input" id="searchInput" placeholder="搜索文章标题…" />
+          <div id="categoryChips" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        </div>
+
+        <div id="postList"></div>
+
+        <div class="pager" id="pager">
+          <button id="prevBtn">上一页</button>
+          <span class="muted" id="pageInfo"></span>
+          <button id="nextBtn">下一页</button>
+        </div>
+      </main>
+
+      <!-- 右侧边栏 -->
+      <aside class="layout-side">
+        <div class="card side-author">
+          <span class="avatar" id="sideAvatar">B</span>
+          <div class="name" id="sideName">Personal Hub</div>
+          <div class="muted" id="sideDesc">记录技术与生活</div>
+          <div class="side-stats">
+            <div><b id="statPosts">-</b><span>文章</span></div>
+            <div><b id="statViews">-</b><span>总阅读</span></div>
+            <div><b id="statCats">-</b><span>分类</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="side-title">热门文章</h3>
+          <ul class="side-list" id="hotList"><li><span class="muted">加载中…</span></li></ul>
+        </div>
+
+        <div class="card">
+          <h3 class="side-title">分类</h3>
+          <ul class="side-list" id="catList"><li><span class="muted">加载中…</span></li></ul>
+        </div>
+
+        <div class="card">
+          <h3 class="side-title">归档</h3>
+          <ul class="side-list" id="archiveList"><li><span class="muted">加载中…</span></li></ul>
+        </div>
+
+        <div class="card">
+          <h3 class="side-title">快捷入口</h3>
+          <div class="side-quick" id="quickLinks">
+            <a href="/login">登录 / 注册</a>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <footer class="site-footer">Personal Hub · 由 Node.js + Express 驱动</footer>
+
+  <script src="/config.js"></script>
+  <script src="/assets/api.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
+      var state = { page: 1, pageSize: 10, total: 0, category: qs('category'), q: '' };
+      var view = qs('view'); // '' | categories | archive | about
+
+      function navView(el, href, current) {
+        return '<a href="' + href + '" class="' + (current === view ? 'active' : '') + '">' + el + '</a>';
+      }
+
+      async function loadPosts() {
+        var box = document.getElementById('postList');
+        box.innerHTML = '<div class="card muted">加载中…</div>';
+        try {
+          var params = new URLSearchParams({ page: state.page, pageSize: state.pageSize });
+          if (state.category) params.set('category', state.category);
+          if (state.q) params.set('q', state.q);
+          var d = await api('/api/public/posts?' + params.toString());
+          state.total = d.total;
+          if (!d.posts.length) {
+            box.innerHTML = '<div class="card" style="text-align:center;padding:40px 0;"><div class="muted">暂无文章</div></div>';
+          } else {
+            box.innerHTML = d.posts.map(function (p) {
+              var cat = p.category ? '<a class="tag" href="/?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
+              return '<div class="card post-card">' +
+                '<h2><a href="/post?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h2>' +
+                '<div class="summary">' + esc(p.summary || '（无摘要）') + '</div>' +
+                '<div class="post-meta">' +
+                '  <span>' + esc(p.author_name || '佚名') + '</span>' +
+                '  <span>' + HUB.fmtDate(p.created_at) + '</span>' +
+                '  <span>阅读 ' + p.views + '</span>' +
+                '  ' + cat +
+                '</div></div>';
+            }).join('');
+          }
+          var pages = Math.max(1, Math.ceil(d.total / d.pageSize));
+          document.getElementById('pageInfo').textContent = d.page + ' / ' + pages + ' · 共 ' + d.total + ' 篇';
+          document.getElementById('prevBtn').disabled = d.page <= 1;
+          document.getElementById('nextBtn').disabled = d.page >= pages;
+        } catch (e) {
+          box.innerHTML = '<div class="card err">加载失败：' + esc(e.message) + '</div>';
+        }
+      }
+
+      async function loadMeta() {
+        try {
+          var m = await api('/api/public/meta');
+          var totalPosts = 0, totalViews = 0;
+          m.categories.forEach(function (c) { totalPosts += c.count; });
+          m.hot.forEach(function (h) { totalViews += h.views; });
+          document.getElementById('statPosts').textContent = totalPosts;
+          document.getElementById('statViews').textContent = totalViews;
+          document.getElementById('statCats').textContent = m.categories.length;
+
+          document.getElementById('hotList').innerHTML = m.hot.length
+            ? m.hot.map(function (h, i) {
+                return '<li><a href="/post?slug=' + encodeURIComponent(h.slug) + '">' + (i + 1) + '. ' + esc(h.title) + '</a><span class="count">' + h.views + '</span></li>';
+              }).join('')
+            : '<li><span class="muted">暂无数据</span></li>';
+
+          document.getElementById('catList').innerHTML = m.categories.length
+            ? m.categories.map(function (c) {
+                return '<li><a href="/?category=' + encodeURIComponent(c.name) + '">' + esc(c.name) + '</a><span class="count">' + c.count + '</span></li>';
+              }).join('')
+            : '<li><span class="muted">暂无分类</span></li>';
+
+          document.getElementById('archiveList').innerHTML = m.archive.length
+            ? m.archive.map(function (a) {
+                return '<li><span>' + esc(a.month) + '</span><span class="count">' + a.count + ' 篇</span></li>';
+              }).join('')
+            : '<li><span class="muted">暂无归档</span></li>';
+
+          // 筛选条：分类 chips
+          var chips = document.getElementById('categoryChips');
+          chips.innerHTML = '<button class="chip ' + (state.category ? '' : 'active') + '" data-cat="">全部</button>' +
+            m.categories.map(function (c) {
+              return '<button class="chip ' + (state.category === c.name ? 'active' : '') + '" data-cat="' + esc(c.name) + '">' + esc(c.name) + '</button>';
+            }).join('');
+          chips.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-cat]');
+            if (!btn) return;
+            state.category = btn.dataset.cat;
+            state.page = 1;
+            chips.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('active'); });
+            btn.classList.add('active');
+            loadPosts();
+          });
+        } catch (e) { /* 侧边栏失败不打断主流程 */ }
+      }
+
+      // 特殊视图：分类总览 / 归档 / 关于
+      function renderView() {
+        if (!view) return;
+        var main = document.getElementById('mainArea');
+        if (view === 'about') {
+          main.innerHTML = '<div class="card"><h2 style="margin-top:0;">关于本站</h2>' +
+            '<p class="muted" style="line-height:1.9;">Personal Hub 是一个自托管的个人博客与文件管理站，' +
+            '支持 Markdown 写作、分类归档与文件分发，可本地运行，也可将前端托管至 GitHub Pages / Gitee Pages。</p></div>';
+          document.getElementById('pager').classList.add('hidden');
+        }
+        // categories / archive 视图沿用主列表，仅高亮导航；数据已在侧边栏展示
+      }
+
+      var searchTimer = null;
+      document.getElementById('searchInput').addEventListener('input', function (e) {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          state.q = e.target.value.trim();
+          state.page = 1;
+          loadPosts();
+        }, 300);
+      });
+      document.getElementById('prevBtn').addEventListener('click', function () { state.page--; loadPosts(); window.scrollTo({ top: 0 }); });
+      document.getElementById('nextBtn').addEventListener('click', function () { state.page++; loadPosts(); window.scrollTo({ top: 0 }); });
+
+      (async function init() {
+        var me = await HUB.fetchMe();
+        HUB.renderNav(me);
+        if (me) {
+          var initial = (me.display_name || me.username || '?').slice(0, 1).toUpperCase();
+          document.getElementById('sideAvatar').textContent = initial;
+          document.getElementById('sideName').textContent = me.display_name || me.username;
+          document.getElementById('sideDesc').textContent = me.role === 'admin' ? '管理员' : '站点用户';
+          document.getElementById('quickLinks').innerHTML =
+            '<a href="/editor">✎ 写文章</a><a href="/console">🗂 管理控制台</a>';
+        }
+        // 分类筛选高亮 + 搜索框预填
+        if (state.category) {
+          var input = document.getElementById('searchInput');
+          input.value = '';
+        }
+        renderView();
+        loadMeta();
+        loadPosts();
+      })();
+    })();
+  </script>
+</body>
+</html>

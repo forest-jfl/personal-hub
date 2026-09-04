@@ -1,13 +1,15 @@
 # Personal Hub
 
-个人文件管理与博客平台。面向 **自己 + 朋友** 的小规模使用场景，部署在远程 Ubuntu 服务器上。
+个人博客 + 文件管理平台。以 **CSDN 风格博客主页**为应用主入口，面向 **自己 + 朋友** 的小规模使用场景。
 
-- **文件管理**：网页上传 / 下载 / 删除，元数据存数据库，实体文件落盘。
-- **个人博客**：后台新增 / 编辑 / 删除文章（Markdown），并提供 **公开阅读页**。
-- **多用户**：初始管理员通过环境变量播种，管理员可在后台创建朋友账号（普通用户 / 管理员）。
-- **认证**：服务端 Session（Cookie，会话落库 `sessions` 表）。
+- **博客主页**（`/`）：顶部导航 + 左侧文章流（摘要/分类/浏览量/分页）+ 右侧边栏（作者卡片、热门文章、分类、归档）
+- **文章详情**（`/post?slug=`）：Markdown 渲染、阅读计数、文章信息
+- **写作编辑**（`/editor`）：Markdown 编辑 + 实时预览，存草稿或发布
+- **管理控制台**（`/console`）：**隐藏页面**，入口在右上角头像下拉菜单；文章 / 文件 / 用户管理三个板块整合于此，不再作为独立导航标签
+- **多用户**：初始管理员通过环境变量播种，管理员可在控制台创建朋友账号
+- **双端运行**：本地由 Express 同源托管前端；前端也可托管到 GitHub Pages / Gitee Pages，跨域调用 API
 
-技术栈：**Node.js + TypeScript + Express + MySQL/MariaDB**，零前端构建（页面为内联 JS 的静态 HTML）。
+技术栈：**Node.js + TypeScript + Express + MySQL/MariaDB**，前端**零构建**（原生 JS/CSS 多文件静态页）。
 
 ---
 
@@ -18,23 +20,24 @@ personal-hub/
 ├── package.json            # 依赖与脚本
 ├── tsconfig.json
 ├── .env.example            # 环境变量样例
-├── schema.sql              # 数据库结构（启动时自动执行）
-├── deploy/
-│   ├── setup.sh            # Ubuntu 一键装 Node/MariaDB/Nginx 并建库
-│   ├── web-service.service # systemd 服务单元
-│   └── nginx-web-service.conf # Nginx 反向代理配置
+├── schema.sql              # 数据库结构（启动时自动执行 + 存量库自动补列）
+├── deploy/                 # Ubuntu 部署脚本 / systemd / Nginx
 ├── src/
 │   ├── server.ts           # 入口：连接校验→迁移→监听
-│   ├── app.ts              # Express 装配
-│   ├── config/index.ts     # 集中配置（env 优先）
+│   ├── app.ts              # Express 装配（CORS / 会话 / 页面路由 / 静态托管）
+│   ├── config/index.ts     # 集中配置（env 优先，含 CORS_ORIGINS / SESSION_CROSS_SITE）
 │   ├── db/                 # 连接池 + 迁移/播种
-│   ├── models/             # 类型定义
-│   ├── repositories/       # 数据访问（参数化查询）
-│   ├── services/           # 业务逻辑（密码哈希等）
-│   ├── middleware/         # 鉴权/校验/错误处理
-│   ├── routes/             # 各 API 路由
+│   ├── models/  repositories/  services/  middleware/  routes/
 │   └── utils/logger.ts
-└── public/                 # 静态页面（login/app/blog/post）
+└── public/                 # 静态前端（零构建，可整体发布到 git 平台 Pages）
+    ├── config.js           # ★ 前端运行配置：API_BASE（托管时改这里）
+    ├── assets/style.css    # 全站样式
+    ├── assets/api.js       # API 封装 + 顶部导航渲染 + 工具函数
+    ├── index.html          # 博客主页（应用主入口）
+    ├── post.html           # 文章详情
+    ├── editor.html         # 写作编辑
+    ├── console.html        # 管理控制台（隐藏入口）
+    └── login.html          # 登录页
 ```
 
 ---
@@ -43,11 +46,29 @@ personal-hub/
 
 ```bash
 npm install
-cp .env.example .env        # 填好数据库连接与管理员凭据
+cp .env.example .env        # 填好数据库连接与管理员凭据（CORS_ORIGINS 留空即可）
 npm run dev                 # ts-node 启动，默认 http://127.0.0.1:3000
 ```
 
-页面入口：`http://127.0.0.1:3000/login`（首次用 `.env` 里的 `ADMIN_USERNAME/ADMIN_PASSWORD` 登录）。
+页面入口：`http://127.0.0.1:3000/`（博客主页；首次用 `.env` 里的 `ADMIN_USERNAME/ADMIN_PASSWORD` 登录）。
+
+---
+
+## 2.1 git 平台托管前端（GitHub Pages / Gitee Pages）
+
+前端是纯静态文件，可直接发布到任意 git 平台 Pages，后端继续跑在自己的服务器上：
+
+1. **发布前端**：把 `public/` 目录内容推送到 Pages（如 `gh-pages` 分支或 Pages 仓库）。
+2. **改 `public/config.js`**：`API_BASE` 填后端地址，如 `'https://api.your-domain.com'`。
+3. **后端 `.env` 追加**：
+   ```ini
+   CORS_ORIGINS=https://<用户名>.github.io,https://<用户名>.gitee.io
+   SESSION_CROSS_SITE=true
+   SESSION_SECURE=true      # 跨站 Cookie 要求 HTTPS
+   ```
+4. 重启后端服务。
+
+> 注意：跨站场景 Cookie 以 `SameSite=None` 下发，必须全程 HTTPS；本地模式（`API_BASE=''`）不受影响。
 
 ---
 
@@ -151,10 +172,12 @@ sudo systemctl reload nginx           # 改了 Nginx 配置后
 | POST | `/api/files` | 是 | 上传（`multipart/form-data`，字段名 `file`） |
 | GET | `/api/files/:id/download` | 是 | 下载 |
 | DELETE | `/api/files/:id` | 是(拥有者/管理员) | 删除 |
-| GET | `/api/public/posts` | 否 | 已发布文章（含渲染 HTML） |
-| GET | `/api/public/posts/:slug` | 否 | 单篇已发布文章 |
+| GET | `/api/public/posts` | 否 | 已发布文章（分页 `page/pageSize`、`category`、`q` 标题搜索，含摘要） |
+| GET | `/api/public/meta` | 否 | 侧边栏元数据（分类统计 / 按月归档 / 热门文章） |
+| GET | `/api/public/posts/:slug` | 否 | 单篇已发布文章（含渲染 HTML，自增阅读量） |
 
-页面：`/login`、`/`（管理台，需登录）、`/blog`、`/blog/post?slug=`（公开阅读）。
+页面：`/`（博客主页）、`/post?slug=`（详情）、`/login`、`/editor`（需登录）、`/console`（需登录，隐藏入口）。
+旧链接 `/blog`、`/app` 等自动重定向到主页。
 
 ---
 

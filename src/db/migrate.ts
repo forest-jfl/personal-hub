@@ -26,7 +26,27 @@ export async function runMigrations(): Promise<void> {
   }
   logger.info('数据库结构已确保（schema.sql）');
 
+  await ensureColumns();
   await seedAdmin();
+}
+
+/** 存量库补列：posts.category / posts.views（schema.sql 的 IF NOT EXISTS 只管建表）。 */
+async function ensureColumns(): Promise<void> {
+  const wanted: Array<{ table: string; column: string; ddl: string }> = [
+    { table: 'posts', column: 'category', ddl: "ALTER TABLE posts ADD COLUMN category VARCHAR(64) NOT NULL DEFAULT ''" },
+    { table: 'posts', column: 'views', ddl: 'ALTER TABLE posts ADD COLUMN views INT NOT NULL DEFAULT 0' },
+  ];
+  for (const item of wanted) {
+    const [rows] = await pool.query(
+      'SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+      [item.table, item.column]
+    );
+    const n = (rows as Array<{ n: number }>)[0]?.n ?? 0;
+    if (!n) {
+      await pool.query(item.ddl);
+      logger.info({ table: item.table, column: item.column }, '已补充缺失列');
+    }
+  }
 }
 
 /** 若不存在则播种初始管理员（凭据来自环境变量）。 */

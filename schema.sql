@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS posts (
   title      VARCHAR(255) NOT NULL,
   slug       VARCHAR(255) NOT NULL,
   content    MEDIUMTEXT   NOT NULL,
+  category   VARCHAR(64)  NOT NULL DEFAULT '',
+  views      INT          NOT NULL DEFAULT 0,
   status     ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
   author_id  INT          NOT NULL,
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -25,6 +27,7 @@ CREATE TABLE IF NOT EXISTS posts (
   PRIMARY KEY (id),
   UNIQUE KEY uk_slug (slug),
   KEY idx_status (status),
+  KEY idx_category (category),
   CONSTRAINT fk_post_author FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

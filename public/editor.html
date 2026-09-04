@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>写文章 · Personal Hub</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header id="site-nav"></header>
+
+  <div class="page">
+    <div class="card">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <input type="text" id="titleInput" placeholder="文章标题" style="flex:1;min-width:240px;font-size:16px;padding:10px 14px;" />
+        <input type="text" id="categoryInput" placeholder="分类（如：技术 / 笔记）" style="width:200px;" />
+        <select id="statusSelect">
+          <option value="draft">存为草稿</option>
+          <option value="published">立即发布</option>
+        </select>
+        <button class="btn" id="saveBtn">保存</button>
+        <a class="btn btn-ghost" href="/console">文章列表</a>
+      </div>
+      <div id="msg" class="muted" style="min-height:18px;margin-bottom:8px;"></div>
+
+      <div class="editor-grid">
+        <div class="editor-pane">
+          <textarea id="contentInput" placeholder="正文，支持 Markdown…"></textarea>
+        </div>
+        <div class="preview-pane post-html" id="previewPane">
+          <span class="muted">预览区域（输入正文后自动刷新）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="/assets/api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var api = HUB.api, esc = HUB.esc, qs = HUB.qs;
+      var editingId = qs('id') ? parseInt(qs('id'), 10) : null;
+
+      var msgEl = document.getElementById('msg');
+      function msg(text, cls) {
+        msgEl.textContent = text;
+        msgEl.className = cls || 'muted';
+      }
+
+      function renderPreview() {
+        var raw = document.getElementById('contentInput').value;
+        var pane = document.getElementById('previewPane');
+        if (window.marked) {
+          pane.innerHTML = String(window.marked.parse(raw || ''));
+        } else {
+          pane.innerHTML = '<pre style="white-space:pre-wrap;">' + esc(raw) + '</pre>';
+        }
+      }
+
+      async function loadEditing() {
+        if (!editingId) {
+          document.getElementById('titleInput').focus();
+          return;
+        }
+        try {
+          var d = await api('/api/posts');
+          var p = d.posts.find(function (x) { return x.id === editingId; });
+          if (!p) { msg('未找到该文章（可能无权限）', 'err'); return; }
+          document.getElementById('titleInput').value = p.title;
+          document.getElementById('categoryInput').value = p.category || '';
+          document.getElementById('statusSelect').value = p.status;
+          document.getElementById('contentInput').value = p.content || '';
+          document.title = '编辑：' + p.title + ' · Personal Hub';
+          renderPreview();
+        } catch (e) {
+          msg('加载文章失败：' + e.message, 'err');
+        }
+      }
+
+      document.getElementById('saveBtn').addEventListener('click', async function () {
+        var title = document.getElementById('titleInput').value.trim();
+        var content = document.getElementById('contentInput').value;
+        var category = document.getElementById('categoryInput').value.trim();
+        var status = document.getElementById('statusSelect').value;
+        if (!title) { msg('请填写标题', 'err'); return; }
+        var btn = this;
+        btn.disabled = true;
+        msg('保存中…');
+        try {
+          if (editingId) {
+            await api('/api/posts/' + editingId, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title, content: content, category: category, status: status })
+            });
+            msg('已保存', 'ok');
+          } else {
+            var d = await api('/api/posts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title, content: content, category: category, status: status })
+            });
+            msg('已保存，跳转编辑页…', 'ok');
+            setTimeout(function () { location.href = '/editor?id=' + d.post.id; }, 500);
+            return;
+          }
+        } catch (e) {
+          msg('保存失败：' + e.message, 'err');
+        }
+        btn.disabled = false;
+      });
+
+      document.getElementById('contentInput').addEventListener('input', renderPreview);
+
+      (async function init() {
+        var me = await HUB.requireMe();
+        if (!me) return;
+        HUB.renderNav(me);
+        loadEditing();
+      })();
+    })();
+  </script>
+</body>
+</html>

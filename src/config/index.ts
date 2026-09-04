@@ -27,6 +27,12 @@ export const config = {
   host: strOr('HOST', '127.0.0.1'),
   publicBaseUrl: strOr('PUBLIC_BASE_URL', 'http://localhost:3000'),
 
+  // CORS 白名单：逗号分隔的来源列表（git 平台托管前端时填 Pages 域名），留空表示仅同源
+  corsOrigins: strOr('CORS_ORIGINS', '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   db: {
     host: strOr('DB_HOST', '127.0.0.1'),
     port: intOr('DB_PORT', 3306),
@@ -40,6 +46,8 @@ export const config = {
     secret: strOr('SESSION_SECRET', 'dev_insecure_secret_change_me'),
     maxAge: intOr('SESSION_MAX_AGE', 86400000),
     secure: boolOr('SESSION_SECURE', false),
+    // 前端托管在 git 平台（跨站调用 API）时设 true：Cookie 以 SameSite=None 下发（须配合 HTTPS）
+    crossSite: boolOr('SESSION_CROSS_SITE', false),
   },
 
   upload: {

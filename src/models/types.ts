@@ -18,6 +18,8 @@ export interface Post {
   title: string;
   slug: string;
   content: string;
+  category: string;
+  views: number;
   status: PostStatus;
   author_id: number;
   created_at: Date;

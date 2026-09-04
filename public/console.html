@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理控制台 · Personal Hub</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header id="site-nav"></header>
+
+  <div class="page">
+    <div class="card" style="max-width:980px;margin:0 auto;">
+      <div class="console-tabs">
+        <button class="console-tab active" data-tab="posts">文章管理</button>
+        <button class="console-tab" data-tab="files">文件管理</button>
+        <button class="console-tab hidden" data-tab="users" id="tabUsers">用户管理</button>
+      </div>
+
+      <div id="msg" style="min-height:18px;margin-bottom:10px;" class="muted"></div>
+
+      <!-- 文章管理 -->
+      <section id="panel-posts">
+        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;">
+          <a class="btn btn-sm" href="/editor">✎ 新建文章</a>
+          <span class="muted">点击"编辑"进入写作页修改内容</span>
+        </div>
+        <table class="table">
+          <thead><tr><th>标题</th><th>分类</th><th>状态</th><th>更新时间</th><th style="width:130px;">操作</th></tr></thead>
+          <tbody id="postsBody"></tbody>
+        </table>
+      </section>
+
+      <!-- 文件管理 -->
+      <section id="panel-files" class="hidden">
+        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
+          <input type="file" id="fileInput" />
+          <button class="btn btn-sm" id="uploadBtn">上传</button>
+          <span class="muted" id="uploadMsg"></span>
+        </div>
+        <table class="table">
+          <thead><tr><th>文件名</th><th>大小</th><th>上传者</th><th>时间</th><th style="width:120px;">操作</th></tr></thead>
+          <tbody id="filesBody"></tbody>
+        </table>
+      </section>
+
+      <!-- 用户管理（仅管理员） -->
+      <section id="panel-users" class="hidden">
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+          <input type="text" id="uName" placeholder="用户名" style="width:140px;" />
+          <input type="text" id="uDisp" placeholder="显示名" style="width:140px;" />
+          <input type="text" id="uPass" placeholder="初始密码" style="width:140px;" />
+          <select id="uRole" style="width:130px;">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+          <button class="btn btn-sm" id="uCreate">创建用户</button>
+        </div>
+        <table class="table">
+          <thead><tr><th>ID</th><th>用户名</th><th>显示名</th><th>角色</th><th>创建时间</th><th style="width:70px;">操作</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <footer class="site-footer">Personal Hub · 管理控制台</footer>
+
+  <script src="/config.js"></script>
+  <script src="/assets/api.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var api = HUB.api, esc = HUB.esc;
+      var me = null;
+      var msgEl = document.getElementById('msg');
+      function msg(text, cls) { msgEl.textContent = text; msgEl.className = cls || 'muted'; }
+
+      // ---- Tab 切换 ----
+      document.querySelector('.console-tabs').addEventListener('click', function (e) {
+        var t = e.target.closest('.console-tab');
+        if (!t) return;
+        document.querySelectorAll('.console-tab').forEach(function (x) { x.classList.remove('active'); });
+        t.classList.add('active');
+        ['posts', 'files', 'users'].forEach(function (k) {
+          document.getElementById('panel-' + k).classList.toggle('hidden', k !== t.dataset.tab);
+        });
+      });
+
+      // ---- 文章管理 ----
+      async function loadPosts() {
+        try {
+          var d = await api('/api/posts');
+          document.getElementById('postsBody').innerHTML = d.posts.map(function (p) {
+            return '<tr>' +
+              '<td><a href="/post?slug=' + encodeURIComponent(p.slug) + '" target="_blank" style="color:var(--primary);">' + esc(p.title) + '</a></td>' +
+              '<td>' + esc(p.category || '-') + '</td>' +
+              '<td>' + (p.status === 'published' ? '<span class="ok">已发布</span>' : '<span class="muted">草稿</span>') + '</td>' +
+              '<td class="muted">' + HUB.fmtDate(p.updated_at) + '</td>' +
+              '<td><button class="link-btn" data-edit="' + p.id + '">编辑</button> · ' +
+              '<button class="link-btn danger" data-del="' + p.id + '">删除</button></td>' +
+              '</tr>';
+          }).join('') || '<tr><td colspan="5" class="muted">暂无文章</td></tr>';
+        } catch (e) { msg('文章加载失败：' + e.message, 'err'); }
+      }
+      document.getElementById('postsBody').addEventListener('click', async function (e) {
+        var edit = e.target.dataset.edit, del = e.target.dataset.del;
+        if (edit) { location.href = '/editor?id=' + edit; return; }
+        if (del) {
+          if (!confirm('确定删除该文章？')) return;
+          try { await api('/api/posts/' + del, { method: 'DELETE' }); msg('已删除', 'ok'); loadPosts(); }
+          catch (err) { msg('删除失败：' + err.message, 'err'); }
+        }
+      });
+
+      // ---- 文件管理 ----
+      async function loadFiles() {
+        try {
+          var d = await api('/api/files');
+          document.getElementById('filesBody').innerHTML = d.files.map(function (f) {
+            return '<tr>' +
+              '<td>' + esc(f.original_name) + '</td>' +
+              '<td>' + HUB.fmtSize(f.size) + '</td>' +
+              '<td>' + (f.owner_name ? esc(f.owner_name) : ('#' + f.owner_id)) + '</td>' +
+              '<td class="muted">' + HUB.fmtDate(f.created_at) + '</td>' +
+              '<td><a class="link-btn" style="text-decoration:none;" href="' + HUB.url('/api/files/' + f.id + '/download') + '">下载</a> · ' +
+              '<button class="link-btn danger" data-del="' + f.id + '">删除</button></td>' +
+              '</tr>';
+          }).join('') || '<tr><td colspan="5" class="muted">暂无文件</td></tr>';
+        } catch (e) { msg('文件加载失败：' + e.message, 'err'); }
+      }
+      document.getElementById('uploadBtn').addEventListener('click', async function () {
+        var f = document.getElementById('fileInput').files[0];
+        var upMsg = document.getElementById('uploadMsg');
+        if (!f) { upMsg.textContent = '请先选择文件'; return; }
+        var fd = new FormData();
+        fd.append('file', f);
+        upMsg.textContent = '上传中…';
+        try {
+          await api('/api/files', { method: 'POST', body: fd });
+          upMsg.textContent = '';
+          document.getElementById('fileInput').value = '';
+          msg('上传成功', 'ok');
+          loadFiles();
+        } catch (e) { upMsg.textContent = '上传失败：' + e.message; }
+      });
+      document.getElementById('filesBody').addEventListener('click', async function (e) {
+        var id = e.target.dataset.del;
+        if (!id) return;
+        if (!confirm('确定删除该文件？')) return;
+        try { await api('/api/files/' + id, { method: 'DELETE' }); msg('已删除', 'ok'); loadFiles(); }
+        catch (err) { msg('删除失败：' + err.message, 'err'); }
+      });
+
+      // ---- 用户管理（管理员） ----
+      async function loadUsers() {
+        try {
+          var d = await api('/api/users');
+          document.getElementById('usersBody').innerHTML = d.users.map(function (u) {
+            return '<tr>' +
+              '<td>' + u.id + '</td><td>' + esc(u.username) + '</td><td>' + esc(u.display_name) + '</td>' +
+              '<td>' + (u.role === 'admin' ? '管理员' : '普通用户') + '</td>' +
+              '<td class="muted">' + HUB.fmtDate(u.created_at) + '</td>' +
+              '<td><button class="link-btn danger" data-del="' + u.id + '">删除</button></td>' +
+              '</tr>';
+          }).join('') || '<tr><td colspan="6" class="muted">暂无其他用户</td></tr>';
+        } catch (e) { msg('用户加载失败：' + e.message, 'err'); }
+      }
+      document.getElementById('uCreate').addEventListener('click', async function () {
+        var username = document.getElementById('uName').value.trim();
+        var display_name = document.getElementById('uDisp').value.trim();
+        var password = document.getElementById('uPass').value;
+        var role = document.getElementById('uRole').value;
+        if (!username || !password) { msg('用户名与密码必填', 'err'); return; }
+        try {
+          await api('/api/users', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username, display_name: display_name, password: password, role: role })
+          });
+          msg('已创建', 'ok');
+          document.getElementById('uName').value = '';
+          document.getElementById('uDisp').value = '';
+          document.getElementById('uPass').value = '';
+          loadUsers();
+        } catch (e) { msg('创建失败：' + e.message, 'err'); }
+      });
+      document.getElementById('usersBody').addEventListener('click', async function (e) {
+        var id = e.target.dataset.del;
+        if (!id) return;
+        if (!confirm('确定删除该用户？')) return;
+        try { await api('/api/users/' + id, { method: 'DELETE' }); msg('已删除', 'ok'); loadUsers(); }
+        catch (err) { msg('删除失败：' + err.message, 'err'); }
+      });
+
+      (async function init() {
+        me = await HUB.requireMe();
+        if (!me) return;
+        HUB.renderNav(me);
+        if (me.role === 'admin') {
+          document.getElementById('tabUsers').classList.remove('hidden');
+          loadUsers();
+        }
+        loadPosts();
+        loadFiles();
+      })();
+    })();
+  </script>
+</body>
+</html>

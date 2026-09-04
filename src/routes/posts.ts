@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
 import { HttpError } from '../middleware/error';
 import * as posts from '../repositories/post.repo';
+import { Post } from '../models/types';
 
 const router = Router();
 router.use(requireAuth);
@@ -19,6 +20,7 @@ function slugify(title: string): string {
 const createSchema = z.object({
   title: z.string().min(1).max(255),
   content: z.string().max(100000).default(''),
+  category: z.string().max(64).default(''),
   status: z.enum(['draft', 'published']).default('draft'),
   slug: z.string().max(255).optional(),
 });
@@ -27,7 +29,8 @@ router.get('/', async (req, res, next) => {
   try {
     // 管理员可见全部，普通用户仅见自己的
     const filter = req.session!.role === 'admin' ? {} : { author_id: req.session!.userId };
-    res.json({ posts: await posts.listPosts(filter) });
+    const list = (await posts.listPosts(filter)) as Post[];
+    res.json({ posts: list });
   } catch (e) {
     next(e);
   }
@@ -35,7 +38,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', validateBody(createSchema), async (req, res, next) => {
   try {
-    const { title, content, status, slug } = req.body;
+    const { title, content, category, status, slug } = req.body;
     const base = slug || slugify(title);
     let candidate = base;
     let n = 1;
@@ -45,6 +48,7 @@ router.post('/', validateBody(createSchema), async (req, res, next) => {
     const post = await posts.createPost({
       title,
       content,
+      category,
       status,
       slug: candidate,
       author_id: req.session!.userId!,
