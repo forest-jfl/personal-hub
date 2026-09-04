@@ -15,3 +15,6 @@ uploads/
 
 # Windows 系统缓存误生成目录
 %SystemDrive%/
+
+# Windows 系统缓存误生成目录
+%SystemDrive%/
