@@ -15,6 +15,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY schema.sql ./
+COPY public ./public
 RUN mkdir -p /app/uploads
 ENV UPLOAD_DIR=/app/uploads
 EXPOSE 3000
