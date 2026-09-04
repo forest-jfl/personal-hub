@@ -23,7 +23,7 @@
       <!-- 文章管理 -->
       <section id="panel-posts">
         <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;">
-          <a class="btn btn-sm" href="/editor">✎ 新建文章</a>
+          <a class="btn btn-sm" href="./editor.html">✎ 新建文章</a>
           <span class="muted">点击"编辑"进入写作页修改内容</span>
         </div>
         <table class="table">
@@ -104,7 +104,7 @@
         if (!t) return;
         document.querySelectorAll('.console-tab').forEach(function (x) { x.classList.remove('active'); });
         t.classList.add('active');
-        ['posts', 'files', 'users'].forEach(function (k) {
+        ['posts', 'files', 'users', 'account'].forEach(function (k) {
           document.getElementById('panel-' + k).classList.toggle('hidden', k !== t.dataset.tab);
         });
       });
@@ -115,7 +115,7 @@
           var d = await api('/api/posts');
           document.getElementById('postsBody').innerHTML = d.posts.map(function (p) {
             return '<tr>' +
-              '<td><a href="/post?slug=' + encodeURIComponent(p.slug) + '" target="_blank" style="color:var(--primary);">' + esc(p.title) + '</a></td>' +
+              '<td><a href="' + url('./post.html?slug=' + encodeURIComponent(p.slug)) + '" target="_blank" style="color:var(--primary);">' + esc(p.title) + '</a></td>' +
               '<td>' + esc(p.category || '-') + '</td>' +
               '<td>' + (p.status === 'published' ? '<span class="ok">已发布</span>' : '<span class="muted">草稿</span>') + '</td>' +
               '<td class="muted">' + HUB.fmtDate(p.updated_at) + '</td>' +

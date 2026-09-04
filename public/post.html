@@ -76,7 +76,7 @@
           var m = await api('/api/public/meta');
           document.getElementById('hotList').innerHTML = m.hot.length
             ? m.hot.map(function (h, i) {
-                return '<li><a href="/post?slug=' + encodeURIComponent(h.slug) + '">' + (i + 1) + '. ' + esc(h.title) + '</a><span class="count">' + h.views + '</span></li>';
+                return '<li><a href="./post.html?slug=' + encodeURIComponent(h.slug) + '">' + (i + 1) + '. ' + esc(h.title) + '</a><span class="count">' + h.views + '</span></li>';
               }).join('')
             : '<li><span class="muted">暂无数据</span></li>';
         } catch (e) { /* ignore */ }
