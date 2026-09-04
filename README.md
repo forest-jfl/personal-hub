@@ -56,17 +56,27 @@ npm run dev                 # ts-node 启动，默认 http://127.0.0.1:3000
 
 ## 2.1 git 平台托管前端（GitHub Pages / Gitee Pages）
 
-前端是纯静态文件，可直接发布到任意 git 平台 Pages，后端继续跑在自己的服务器上：
+前端是纯静态文件，可直接发布到任意 git 平台 Pages，后端继续跑在自己的服务器上。
 
-1. **发布前端**：把 `public/` 目录内容推送到 Pages（如 `gh-pages` 分支或 Pages 仓库）。
-2. **改 `public/config.js`**：`API_BASE` 填后端地址，如 `'https://api.your-domain.com'`。
-3. **后端 `.env` 追加**：
+**一键发布脚本**（在仓库根目录执行，把前端推送到 `pages` 分支并注入 API_BASE）：
+
+```bash
+API_BASE=https://api.your-domain.com bash deploy/publish-pages.sh pages
+```
+
+发布后到 git 平台仓库设置中开启 Pages、选择 `pages` 分支即可。
+
+**启用前的前置条件**（按顺序完成）：
+
+1. **服务器必须先有 HTTPS**：Pages 页面是 HTTPS，调用 HTTP 接口会被浏览器拦截（混合内容）。等域名解析好后上 Caddy/certbot。
+2. **后端 `.env` 追加**：
    ```ini
    CORS_ORIGINS=https://<用户名>.github.io,https://<用户名>.gitee.io
    SESSION_CROSS_SITE=true
    SESSION_SECURE=true      # 跨站 Cookie 要求 HTTPS
    ```
-4. 重启后端服务。
+   重启后端服务（Docker 部署：`docker compose up -d`）。
+3. 重新执行发布脚本，确保 `API_BASE` 使用 `https://` 地址。
 
 > 注意：跨站场景 Cookie 以 `SameSite=None` 下发，必须全程 HTTPS；本地模式（`API_BASE=''`）不受影响。
 

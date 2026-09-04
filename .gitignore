@@ -12,3 +12,4 @@ uploads/
 .DS_Store
 .idea/
 .vscode/
+.pages-worktree/
