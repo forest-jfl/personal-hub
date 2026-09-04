@@ -12,3 +12,6 @@ uploads/
 .idea/
 .vscode/
 .pages-worktree/
+
+# Windows 系统缓存误生成目录
+%SystemDrive%/
