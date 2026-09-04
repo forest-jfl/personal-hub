@@ -7,10 +7,8 @@ dist/
 uploads/
 *.log
 .env
-
 # 系统/编辑器
 .DS_Store
 .idea/
 .vscode/
-.pages-worktree/
 .pages-worktree/
