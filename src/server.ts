@@ -6,6 +6,7 @@ import { config } from './config';
 import { logger } from './utils/logger';
 import { testConnection } from './db/connection';
 import { runMigrations } from './db/migrate';
+import { attachRemoteWs } from './ws/remote-ws';
 
 async function main() {
   // 1) 校验数据库连通性
@@ -25,6 +26,8 @@ async function main() {
   // 4) 启动 HTTP 服务
   const app = createApp();
   const server = http.createServer(app);
+  // 5) 挂载远程控制 WebSocket 通道（复用同一端口；Caddy 原生透传 WS 升级）
+  attachRemoteWs(server);
   server.listen(config.port, config.host, () => {
     logger.info(`Personal Hub 已启动: http://${config.host}:${config.port} (env=${config.env})`);
   });

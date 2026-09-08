@@ -70,6 +70,17 @@ export const config = {
     maxAccountsPerIp: intOr('MAX_ACCOUNTS_PER_IP', 10),
   },
 
+  remote: {
+    // 远程控制（WebSocket 运维通道）总开关，公网不需要时可设 REMOTE_CONTROL_ENABLED=false
+    enabled: boolOr('REMOTE_CONTROL_ENABLED', true),
+    // 一次性连接票据有效期（秒）
+    ticketTtlSec: intOr('REMOTE_TICKET_TTL', 60),
+    // 单条命令输出上限（字节），超出部分截断
+    maxOutputBytes: intOr('REMOTE_MAX_OUTPUT_BYTES', 64 * 1024),
+    // 单条命令执行超时（毫秒）
+    commandTimeoutMs: intOr('REMOTE_COMMAND_TIMEOUT_MS', 15 * 1000),
+  },
+
   notify: {
     // 登录通知总开关
     enabled: boolOr('NOTIFY_ENABLED', false),

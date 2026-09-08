@@ -15,6 +15,7 @@
         <button class="console-tab active" data-tab="posts">文章管理</button>
         <button class="console-tab" data-tab="files">文件管理</button>
         <button class="console-tab hidden" data-tab="users" id="tabUsers">用户管理</button>
+        <button class="console-tab hidden" data-tab="remote" id="tabRemote">远程控制</button>
         <button class="console-tab" data-tab="account" id="tabAccount">账号设置</button>
       </div>
 
@@ -65,6 +66,23 @@
         </table>
       </section>
 
+      <!-- 远程控制（仅管理员）：WebSocket 运维通道 -->
+      <section id="panel-remote" class="hidden">
+        <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-sm" id="rcConnect">连接</button>
+          <button class="btn btn-sm hidden" id="rcDisconnect">断开</button>
+          <span class="muted" id="rcStatus">未连接</span>
+          <span style="flex:1;"></span>
+          <span class="muted">命令在服务端白名单内执行，全程审计留痕</span>
+        </div>
+        <div id="rcQuick" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
+        <pre id="remoteOut" style="background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:10px;max-height:420px;overflow:auto;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;min-height:120px;margin:0;">[远程控制台] 点击「连接」建立通道，快捷按钮或底部输入框下发命令。</pre>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="text" id="rcInput" placeholder="输入命令，如：status / disk / help" style="flex:1;" autocomplete="off" />
+          <button class="btn btn-sm" id="rcSend">执行</button>
+        </div>
+      </section>
+
       <!-- 账号设置（所有登录用户）：修改密码 -->
       <section id="panel-account" class="hidden" style="max-width:420px;">
         <h3 style="margin:0 0 4px;">修改密码</h3>
@@ -90,6 +108,7 @@
 
   <script src="/config.js"></script>
   <script src="/assets/api.js"></script>
+  <script src="/assets/remote-control.js"></script>
   <script>
     (function () {
       'use strict';
@@ -104,7 +123,7 @@
         if (!t) return;
         document.querySelectorAll('.console-tab').forEach(function (x) { x.classList.remove('active'); });
         t.classList.add('active');
-        ['posts', 'files', 'users', 'account'].forEach(function (k) {
+        ['posts', 'files', 'users', 'remote', 'account'].forEach(function (k) {
           document.getElementById('panel-' + k).classList.toggle('hidden', k !== t.dataset.tab);
         });
       });

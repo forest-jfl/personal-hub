@@ -47,4 +47,19 @@ CREATE TABLE IF NOT EXISTS files (
   CONSTRAINT fk_file_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 远程控制命令审计日志（谁在什么时候执行了什么命令、结果如何）
+CREATE TABLE IF NOT EXISTS remote_cmd_log (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  user_id    INT          NOT NULL,
+  username   VARCHAR(64)  NOT NULL DEFAULT '',
+  command    VARCHAR(64)  NOT NULL,
+  args       VARCHAR(512) NOT NULL DEFAULT '',
+  ok         TINYINT      NOT NULL DEFAULT 0,
+  output     TEXT         NULL,
+  ip         VARCHAR(64)  NOT NULL DEFAULT '',
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 注意：会话表 sessions 由 express-mysql-session 自动创建，无需在此定义。
