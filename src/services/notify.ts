@@ -41,17 +41,27 @@ async function getWecomToken(): Promise<string> {
   return wecomToken.value;
 }
 
+/** 将 markdown 正文转为纯文本（微信端「微工作台」不支持 markdown 消息类型，只支持 text）。 */
+function markdownToPlain(md: string): string {
+  return md
+    .replace(/^#{1,6}\s*/gm, '') // 标题井号
+    .replace(/\*\*/g, '') // 粗体
+    .replace(/`([^`]*)`/g, '$1') // 行内代码
+    .replace(/^\s*[-*]\s+/gm, '· '); // 列表符
+}
+
 async function sendWecom(msg: PushMessage): Promise<void> {
   const token = await getWecomToken();
   const { agentid, touser } = config.notify.wecom;
+  // 用 text 而非 markdown：markdown 在微信「微工作台」中显示“暂不支持此消息类型”
   const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       touser,
-      msgtype: 'markdown',
+      msgtype: 'text',
       agentid,
-      markdown: { content: `## ${msg.title}\n${msg.text}` },
+      text: { content: `${msg.title}\n${markdownToPlain(msg.text)}` },
     }),
   });
   const data = (await res.json()) as { errcode: number; errmsg?: string };
