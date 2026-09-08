@@ -7,5 +7,5 @@
  *   并确保后端 .env 的 CORS_ORIGINS 包含 Pages 域名、SESSION_CROSS_SITE=true。
  */
 window.HUB_CONFIG = {
-  API_BASE: '',
+  API_BASE: 'https://blog.jiangfulin.com',
 };
