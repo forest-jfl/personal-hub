@@ -15,6 +15,7 @@ import { requireAuth } from '../middleware/auth';
 import { HttpError } from '../middleware/error';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { notifyLoginSuccess, notifyLoginFailure } from '../services/login-notify';
 
 const router = Router();
 
@@ -44,8 +45,12 @@ router.post(
     try {
       const { username, password } = req.body;
       const user = await verifyCredentials(username, password);
-      if (!user) return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      if (!user) {
+        notifyLoginFailure(req, username, 'INVALID_CREDENTIALS');
+        return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      }
       if (user.status === 'disabled') {
+        notifyLoginFailure(req, username, 'USER_DISABLED');
         return res.status(403).json({ error: 'USER_DISABLED', message: '账号已被停用，请联系管理员' });
       }
       // 会话固定防护：登录成功后更换会话 ID
@@ -54,6 +59,7 @@ router.post(
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.role = user.role;
+        notifyLoginSuccess(req, user);
         res.json({ user: toPublicUser(user) });
       });
     } catch (e) {

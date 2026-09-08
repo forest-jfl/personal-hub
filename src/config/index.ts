@@ -69,6 +69,34 @@ export const config = {
     // 同一 IP 最多可注册的账号数（防批量刷号；管理员在控制台创建的账号不受限）
     maxAccountsPerIp: intOr('MAX_ACCOUNTS_PER_IP', 10),
   },
+
+  notify: {
+    // 登录通知总开关
+    enabled: boolOr('NOTIFY_ENABLED', false),
+    // 推送渠道：wecom(企业微信自建应用) | serverchan(Server酱) | pushplus | webhook(钉钉/飞书自定义机器人等)
+    channel: strOr('NOTIFY_CHANNEL', 'wecom'),
+    // 仅关注特定账号的登录事件（逗号分隔用户名）；留空表示推送所有账号的登录事件
+    watchUsers: strOr('NOTIFY_WATCH_USERS', '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    wecom: {
+      corpid: strOr('NOTIFY_WECOM_CORPID', ''),
+      secret: strOr('NOTIFY_WECOM_SECRET', ''),
+      agentid: intOr('NOTIFY_WECOM_AGENTID', 0),
+      // 接收人（企业微信成员账号），@all 表示该应用可见范围内的全部成员
+      touser: strOr('NOTIFY_WECOM_TOUSER', '@all'),
+    },
+    serverchan: {
+      sendkey: strOr('NOTIFY_SERVERCHAN_SENDKEY', ''),
+    },
+    pushplus: {
+      token: strOr('NOTIFY_PUSHPLUS_TOKEN', ''),
+    },
+    webhook: {
+      url: strOr('NOTIFY_WEBHOOK_URL', ''),
+    },
+  },
 };
 
 // 生产环境使用默认会话密钥属于高危配置，启动时告警
