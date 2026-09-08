@@ -10,6 +10,7 @@ import usersRouter from './routes/users';
 import postsRouter from './routes/posts';
 import filesRouter from './routes/files';
 import publicRouter from './routes/public';
+import wecomCallbackRouter from './routes/wecom-callback';
 import { requireAuth } from './middleware/auth';
 import { securityHeaders, csrfOriginCheck } from './middleware/security';
 import { errorHandler, notFound } from './middleware/error';
@@ -79,6 +80,8 @@ export function createApp(): Express {
   app.use('/api/posts', postsRouter);
   app.use('/api/files', filesRouter);
   app.use('/api/public', publicRouter);
+  // 企业微信「接收消息服务器URL」回调验证（设置企业可信IP的前置要求）
+  app.use('/api/wecom', wecomCallbackRouter);
 
   // 页面路由
   const publicDir = path.resolve(__dirname, '..', 'public');

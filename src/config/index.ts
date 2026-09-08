@@ -86,6 +86,9 @@ export const config = {
       agentid: intOr('NOTIFY_WECOM_AGENTID', 0),
       // 接收人（企业微信成员账号），@all 表示该应用可见范围内的全部成员
       touser: strOr('NOTIFY_WECOM_TOUSER', '@all'),
+      // 「接收消息服务器URL」回调验签参数（后台要求配置可信IP时需要）
+      callbackToken: strOr('NOTIFY_WECOM_TOKEN', ''),
+      callbackAeskey: strOr('NOTIFY_WECOM_AESKEY', ''),
     },
     serverchan: {
       sendkey: strOr('NOTIFY_SERVERCHAN_SENDKEY', ''),
