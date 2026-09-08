@@ -38,7 +38,7 @@ function wecomDecrypt(encryptBase64: string, aeskey: string, corpid: string): st
   const key = Buffer.from(aeskey + '=', 'base64');
   if (key.length !== 32) throw new Error('EncodingAESKey 非法（Base64 解码后须为 32 字节）');
   const decipher = crypto.createDecipheriv('aes-256-cbc', key, key.subarray(0, 16));
-  decipher.setAutoPadding(false);
+  // 企业微信使用标准 PKCS7 填充，Node 默认自动去填充（勿设 false，否则填充字节会混入 corpid 比对）
   const dec = Buffer.concat([decipher.update(Buffer.from(encryptBase64, 'base64')), decipher.final()]);
   const msgLen = dec.readUInt32BE(16);
   const msg = dec.subarray(20, 20 + msgLen).toString('utf8');
