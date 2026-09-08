@@ -311,6 +311,7 @@
         HUB.renderNav(me);
         if (me.role === 'admin') {
           document.getElementById('tabUsers').classList.remove('hidden');
+          document.getElementById('tabRemote').classList.remove('hidden');
           loadUsers();
         }
         loadPosts();
