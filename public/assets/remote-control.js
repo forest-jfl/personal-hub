@@ -28,7 +28,7 @@
   function renderQuick(commands) {
     var box = document.getElementById('rcQuick');
     box.innerHTML = '';
-    ['status', 'disk', 'docker', 'stats', 'sessions', 'audit', 'help'].forEach(function (n) {
+    ['status', 'logs', 'env', 'db', 'disk', 'uploads', 'net', 'docker', 'stats', 'sessions', 'audit', 'help'].forEach(function (n) {
       var c = (commands || []).filter(function (x) { return x.name === n; })[0];
       if (!c) return;
       var b = document.createElement('button');

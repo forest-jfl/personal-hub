@@ -1,8 +1,11 @@
 import { execFile } from 'child_process';
+import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import { promisify } from 'util';
 import { pool } from '../../db/connection';
-import { logger } from '../../utils/logger';
+import { logger, recentLogs } from '../../utils/logger';
+import { config } from '../../config';
 
 const execFileAsync = promisify(execFile);
 
@@ -187,6 +190,156 @@ register({
           `${r.command}${r.args ? ' ' + r.args : ''} → ${r.ok ? 'OK' : 'FAIL'}`
       )
       .join('\n');
+  },
+});
+
+// ---- 应用日志 ----
+register({
+  name: 'logs',
+  desc: '查看应用最近日志（内存环形缓冲，最多 2000 行）',
+  usage: 'logs [n]',
+  async handler(args) {
+    let n = parseInt(args[0] || '30', 10);
+    if (!Number.isFinite(n) || n <= 0) n = 30;
+    if (n > 200) n = 200;
+    const lines = recentLogs(n);
+    if (lines.length === 0) return '暂无日志（环形缓冲为空）';
+    return lines.join('\n');
+  },
+});
+
+// ---- 生效配置 ----
+register({
+  name: 'env',
+  desc: '查看当前生效配置（敏感项自动打码）',
+  async handler() {
+    const mask = (v: string) => (v ? '***（已设置）' : '（未设置）');
+    return [
+      `运行环境    : ${config.env}`,
+      `监听        : ${config.host}:${config.port}`,
+      `对外地址    : ${config.publicBaseUrl}`,
+      `CORS 白名单 : ${config.corsOrigins.join(', ') || '（仅同源）'}`,
+      `数据库      : ${config.db.user}@${config.db.host}:${config.db.port}/${config.db.name} (密码 ${mask(config.db.password)})`,
+      `会话        : maxAge=${Math.round(config.session.maxAge / 3600000)}h secure=${config.session.secure} crossSite=${config.session.crossSite} (secret ${mask(config.session.secret)})`,
+      `上传目录    : ${config.upload.dir} · 配额 ${config.upload.quotaPerUserMB}MB/人 · 单文件 ≤ ${Math.round(config.upload.maxFileSize / 1048576)}MB`,
+      `开放注册    : ${config.auth.allowRegister ? '开' : '关'} · 每 IP 上限 ${config.auth.maxAccountsPerIp}`,
+      `登录通知    : ${config.notify.enabled ? `开 (${config.notify.channel})` : '关'} · 接收人 ${config.notify.wecom.touser} (corpid ${mask(config.notify.wecom.corpid)} secret ${mask(config.notify.wecom.secret)})`,
+      `远程控制    : ${config.remote.enabled ? '开' : '关'} · 票据 TTL ${config.remote.ticketTtlSec}s`,
+    ].join('\n');
+  },
+});
+
+// ---- 上传目录 ----
+register({
+  name: 'uploads',
+  desc: '上传目录统计（文件数 / 总大小 / 最大文件）',
+  async handler() {
+    const dir = path.resolve(config.upload.dir);
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return `上传目录不可读：${dir}`;
+    }
+    let count = 0;
+    let total = 0;
+    let largest = { name: '', size: 0 };
+    for (const name of names) {
+      try {
+        const st = fs.statSync(path.join(dir, name));
+        if (!st.isFile()) continue;
+        count += 1;
+        total += st.size;
+        if (st.size > largest.size) largest = { name, size: st.size };
+      } catch {
+        /* 跳过无法 stat 的项 */
+      }
+    }
+    const fmt = (b: number) =>
+      b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB'
+        : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB'
+        : (b / 1024).toFixed(1) + ' KB';
+    if (count === 0) return `上传目录为空：${dir}`;
+    return [
+      `目录      : ${dir}`,
+      `文件数    : ${count}`,
+      `总大小    : ${fmt(total)} (配额 ${config.upload.quotaPerUserMB} MB/人)`,
+      `最大文件  : ${largest.name || '-'} (${fmt(largest.size)})`,
+    ].join('\n');
+  },
+});
+
+// ---- 网络端口 ----
+register({
+  name: 'net',
+  desc: '容器 TCP 连接状态（读 /proc/net，不依赖外部工具）',
+  async handler() {
+    const STATE: Record<string, string> = {
+      '01': 'ESTABLISHED', '02': 'SYN_SENT', '03': 'SYN_RECV', '04': 'FIN_WAIT1',
+      '05': 'FIN_WAIT2', '06': 'TIME_WAIT', '07': 'CLOSE', '08': 'CLOSE_WAIT',
+      '09': 'LAST_ACK', '0A': 'LISTEN', '0B': 'CLOSING',
+    };
+    const decode = (file: string) => {
+      try {
+        return fs.readFileSync(file, 'utf8').trim().split('\n').slice(1);
+      } catch {
+        return [];
+      }
+    };
+    const rows: Array<{ line: string; v6: boolean }> = [
+      ...decode('/proc/net/tcp').map((line) => ({ line, v6: false })),
+      ...decode('/proc/net/tcp6').map((line) => ({ line, v6: true })),
+    ];
+    if (rows.length === 0) return '/proc/net/tcp 不可读（当前环境可能非 Linux）';
+    const byState = new Map<string, number>();
+    const listeners: string[] = [];
+    for (const { line, v6 } of rows) {
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 4) continue;
+      const st = STATE[cols[3]] || cols[3];
+      byState.set(st, (byState.get(st) || 0) + 1);
+      if (cols[3] === '0A') {
+        const [addr, portHex] = cols[1].split(':');
+        // tcp6 地址为 32 位十六进制；全零或 IPv4 映射段视为回环/本机
+        const isLocal =
+          /^[0]+$/.test(addr) || addr.startsWith('0000000000000000FFFF');
+        listeners.push(
+          `${isLocal ? 'local' : addr.slice(-8)}:${parseInt(portHex, 16)} (${v6 ? 'tcp6' : 'tcp'})`
+        );
+      }
+    }
+    const stateLine = [...byState.entries()].map(([k, v]) => `${k}=${v}`).join(' · ');
+    return [
+      `连接状态分布: ${stateLine}`,
+      `监听端口 (${listeners.length}):`,
+      ...listeners.slice(0, 20).map((l) => `  ${l}`),
+    ].join('\n');
+  },
+});
+
+// ---- 数据库 ----
+register({
+  name: 'db',
+  desc: '数据库概览（版本 / 各表行数与占用空间）',
+  async handler() {
+    const [vRows] = await pool.query('SELECT VERSION() AS v');
+    const version = (vRows as Array<{ v: string }>)[0]?.v || '?';
+    const [tRows] = await pool.query(
+      `SELECT TABLE_NAME AS name, TABLE_ROWS AS rows_cnt,
+              DATA_LENGTH + INDEX_LENGTH AS bytes
+         FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+        ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC`
+    );
+    const tables = tRows as Array<{ name: string; rows_cnt: number; bytes: number }>;
+    const fmt = (b: number) =>
+      b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : (b / 1024).toFixed(1) + ' KB';
+    return [
+      `MariaDB/MySQL 版本: ${version}`,
+      ...tables.map(
+        (t) => `  ${String(t.name).padEnd(20)} ${String(t.rows_cnt ?? 0).padStart(8)} 行  ${fmt(Number(t.bytes))}`
+      ),
+    ].join('\n');
   },
 });
 
