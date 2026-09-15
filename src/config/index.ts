@@ -111,6 +111,58 @@ export const config = {
       url: strOr('NOTIFY_WEBHOOK_URL', ''),
     },
   },
+
+  /**
+   * 每日内容抓取（RSS → 待审草稿）。
+   * 时区：FEED_TZ 显式指定（默认 Asia/Shanghai），不依赖容器 TZ，避免 8 小时偏移。
+   */
+  feed: {
+    // 总开关（默认关：未配置好来源时不应误抓）
+    enabled: boolOr('FEED_ENABLED', false),
+    // 每日触发时间 HH:MM（FEED_TZ 时区下的墙上时间）
+    time: strOr('FEED_TIME', '08:30'),
+    tz: strOr('FEED_TZ', 'Asia/Shanghai'),
+    // 启动时立即跑一次（便于部署后验证，生产建议 false）
+    runOnStart: boolOr('FEED_RUN_ON_START', false),
+    // 错过触发时间后的补跑：进程在 08:30 之后才启动时，当日仍执行一次（每天至多一次）
+    catchUp: boolOr('FEED_CATCH_UP', true),
+    // 启用的来源 id（逗号分隔），留空 = 内置默认启用集合
+    // （即 sources.ts 中 defaultEnabled=true 的三项：sspai / ithome / oschina；
+    //   infoq 已停更、36kr 返回 HTML，两者 defaultEnabled=false 仅留档）
+    sources: strOr('FEED_SOURCES', ''),
+    // 单源单次最多入库条数（覆盖源定义的默认值）
+    maxItems: intOr('FEED_MAX_ITEMS', 6),
+    // 新鲜度阈值（天）：pubDate 早于该天数的条目直接丢弃。
+    // 存在的意义：部分源站的 RSS 长期不更新（如 InfoQ 返回数年前的存档），
+    // 若不按时间过滤会把历史内容当作「今日更新」灌进待审列表。
+    maxAgeDays: intOr('FEED_MAX_AGE_DAYS', 7),
+    // 摘录最大字符数（合规：只摘导语，不全文转载）
+    excerptChars: intOr('FEED_EXCERPT_CHARS', 420),
+    // RSS 摘要被判定为低质（推广文案/过短）时，回退抓取原文页 og:description 补导语
+    fetchOg: boolOr('FEED_FETCH_OG', true),
+    // 每个来源单次最多尝试几次原文页回退（原文页通常较慢，需封顶以免拖长任务）
+    maxOgPerSource: intOr('FEED_MAX_OG_PER_SOURCE', 3),
+    // 入库初始状态：draft = 待人工审核后发布；published = 直接上线
+    publishStatus: strOr('FEED_PUBLISH_STATUS', 'draft') as 'draft' | 'published',
+    // 兜底分类（源定义未指定 category 时使用）
+    category: strOr('FEED_CATEGORY', '资讯'),
+    // 跨源同题软去重（标题归一化后相同则跳过）
+    dedupTitle: boolOr('FEED_DEDUP_TITLE', true),
+    dedupTitleDays: intOr('FEED_DEDUP_TITLE_DAYS', 7),
+    // 抓取超时与重试
+    timeoutMs: intOr('FEED_TIMEOUT_MS', 15000),
+    retries: intOr('FEED_RETRIES', 2),
+    // 抓取时的 User-Agent —— 这个字符串会被**每个被抓取的站点**记录到访问日志里，
+    // 属于对外可见的身份，所以与站名保持一致（旧值 PersonalHubFeedBot 已随改名替换）。
+    userAgent: strOr(
+      'FEED_USER_AGENT',
+      `BanshanLogFeedBot/1.0 (+${strOr('PUBLIC_BASE_URL', 'http://localhost:3000')})`
+    ),
+    // 运行结果推送管理员（复用 NOTIFY_* 渠道）
+    notify: boolOr('FEED_NOTIFY', true),
+    // 公开主页「今日更新」区块最多展示条数
+    dailyLimit: intOr('FEED_DAILY_LIMIT', 8),
+  },
 };
 
 // 生产环境使用默认会话密钥属于高危配置，启动时告警

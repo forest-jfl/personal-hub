@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>管理控制台 · Personal Hub</title>
+  <title>管理控制台 · 半山日志</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0910" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
@@ -14,6 +17,7 @@
       <div class="console-tabs">
         <button class="console-tab active" data-tab="posts">文章管理</button>
         <button class="console-tab" data-tab="files">文件管理</button>
+        <button class="console-tab hidden" data-tab="feed" id="tabFeed">抓取任务</button>
         <button class="console-tab hidden" data-tab="users" id="tabUsers">用户管理</button>
         <button class="console-tab hidden" data-tab="remote" id="tabRemote">远程控制</button>
         <button class="console-tab" data-tab="account" id="tabAccount">账号设置</button>
@@ -23,14 +27,44 @@
 
       <!-- 文章管理 -->
       <section id="panel-posts">
-        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;">
+        <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
           <a class="btn btn-sm" href="./editor.html">✎ 新建文章</a>
           <span class="muted">点击"编辑"进入写作页修改内容</span>
+          <span style="flex:1;"></span>
+          <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            <input type="checkbox" id="onlyDraft" /> 只看草稿
+          </label>
         </div>
         <table class="table">
-          <thead><tr><th>标题</th><th>分类</th><th>状态</th><th>更新时间</th><th style="width:130px;">操作</th></tr></thead>
+          <thead><tr><th>标题</th><th>来源</th><th>分类</th><th>状态</th><th>更新时间</th><th style="width:170px;">操作</th></tr></thead>
           <tbody id="postsBody"></tbody>
         </table>
+      </section>
+
+      <!-- 抓取任务（仅管理员）：每日 RSS 抓取的状态与手动触发 -->
+      <section id="panel-feed" class="hidden">
+        <div class="feed-actions">
+          <button class="btn btn-sm" id="feedRunDry">干跑（不写库）</button>
+          <button class="btn btn-sm" id="feedRunNow">立即抓取</button>
+          <button class="btn btn-sm btn-ghost" id="feedRefresh">刷新状态</button>
+          <span class="muted" id="feedMsg"></span>
+        </div>
+        <div class="feed-status" id="feedStats"></div>
+        <div class="card" style="box-shadow:none;">
+          <h3 style="margin:0 0 10px;font-size:14px;">可用来源</h3>
+          <ul class="side-list" id="feedSources"></ul>
+        </div>
+        <div class="card" style="box-shadow:none;">
+          <h3 style="margin:0 0 10px;font-size:14px;">最近一次运行</h3>
+          <div id="feedLastRun" class="muted" style="font-size:13px;">暂无记录</div>
+        </div>
+        <div class="card" style="box-shadow:none;">
+          <h3 style="margin:0 0 10px;font-size:14px;">执行留痕（最近 20 条）</h3>
+          <table class="table feed-log">
+            <thead><tr><th>时间</th><th>来源</th><th>结果</th><th>解析</th><th>新增</th><th>更新</th><th>跳过</th><th>耗时</th><th>错误</th></tr></thead>
+            <tbody id="feedLogBody"></tbody>
+          </table>
+        </div>
       </section>
 
       <!-- 文件管理 -->
@@ -76,7 +110,9 @@
           <span class="muted">命令在服务端白名单内执行，全程审计留痕</span>
         </div>
         <div id="rcQuick" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
-        <pre id="remoteOut" style="background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:10px;max-height:420px;overflow:auto;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;min-height:120px;margin:0;">[远程控制台] 点击「连接」建立通道，快捷按钮或底部输入框下发命令。</pre>
+        <!-- 样式收进 style.css 的 #remoteOut —— 内联样式优先级高于样式表，
+             留在这里会把暗色主题盖回浅色。 -->
+        <pre id="remoteOut">[远程控制台] 点击「连接」建立通道，快捷按钮或底部输入框下发命令。</pre>
         <div style="display:flex;gap:8px;margin-top:10px;">
           <input type="text" id="rcInput" placeholder="输入命令，如：status / disk / help" style="flex:1;" autocomplete="off" />
           <button class="btn btn-sm" id="rcSend">执行</button>
@@ -104,7 +140,7 @@
     </div>
   </div>
 
-  <footer class="site-footer">Personal Hub · 管理控制台 · <a href="https://tools.jiangfulin.com/" style="color:inherit;">在线工具箱</a></footer>
+  <footer class="site-footer">半山日志 · 管理控制台 · <a href="https://tools.jiangfulin.com/">在线工具箱</a></footer>
 
   <script src="/config.js"></script>
   <script src="/assets/api.js"></script>
@@ -123,7 +159,7 @@
         if (!t) return;
         document.querySelectorAll('.console-tab').forEach(function (x) { x.classList.remove('active'); });
         t.classList.add('active');
-        ['posts', 'files', 'users', 'remote', 'account'].forEach(function (k) {
+        ['posts', 'files', 'feed', 'users', 'remote', 'account'].forEach(function (k) {
           document.getElementById('panel-' + k).classList.toggle('hidden', k !== t.dataset.tab);
         });
       });
@@ -132,27 +168,131 @@
       async function loadPosts() {
         try {
           var d = await api('/api/posts');
-          document.getElementById('postsBody').innerHTML = d.posts.map(function (p) {
+          var onlyDraft = document.getElementById('onlyDraft').checked;
+          var list = onlyDraft ? d.posts.filter(function (p) { return p.status === 'draft'; }) : d.posts;
+          document.getElementById('postsBody').innerHTML = list.map(function (p) {
+            var isPub = p.status === 'published';
+            var srcCell = p.source
+              ? '<a class="src-badge" href="' + esc(p.source_url || '#') + '" target="_blank" rel="noopener noreferrer" title="原文链接">' + esc(p.source_name || p.source) + ' <span class="ext">↗</span></a>'
+              : '<span class="muted">手工</span>';
             return '<tr>' +
               '<td><a href="' + url('./post.html?slug=' + encodeURIComponent(p.slug)) + '" target="_blank" style="color:var(--primary);">' + esc(p.title) + '</a></td>' +
+              '<td>' + srcCell + '</td>' +
               '<td>' + esc(p.category || '-') + '</td>' +
-              '<td>' + (p.status === 'published' ? '<span class="ok">已发布</span>' : '<span class="muted">草稿</span>') + '</td>' +
+              '<td>' + (isPub ? '<span class="ok">已发布</span>' : '<span class="muted">草稿</span>') + '</td>' +
               '<td class="muted">' + HUB.fmtDate(p.updated_at) + '</td>' +
               '<td><button class="link-btn" data-edit="' + p.id + '">编辑</button> · ' +
-              '<button class="link-btn danger" data-del="' + p.id + '">删除</button></td>' +
+              (isPub
+                ? '<button class="link-btn" data-unpub="' + p.id + '">撤回</button>'
+                : '<button class="link-btn" data-pub="' + p.id + '">发布</button>') +
+              ' · <button class="link-btn danger" data-del="' + p.id + '">删除</button></td>' +
               '</tr>';
-          }).join('') || '<tr><td colspan="5" class="muted">暂无文章</td></tr>';
+          }).join('') || '<tr><td colspan="6" class="muted">' + (onlyDraft ? '暂无待审草稿' : '暂无文章') + '</td></tr>';
         } catch (e) { msg('文章加载失败：' + e.message, 'err'); }
       }
+      document.getElementById('onlyDraft').addEventListener('change', loadPosts);
+
       document.getElementById('postsBody').addEventListener('click', async function (e) {
         var edit = e.target.dataset.edit, del = e.target.dataset.del;
+        var pub = e.target.dataset.pub, unpub = e.target.dataset.unpub;
         if (edit) { location.href = url('/editor?id=' + edit); return; }
+        if (pub || unpub) {
+          var id = pub || unpub;
+          var to = pub ? 'published' : 'draft';
+          e.target.disabled = true;
+          try {
+            await api('/api/posts/' + id, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: to }),
+            });
+            msg(pub ? '已发布' : '已撤回为草稿', 'ok');
+            loadPosts();
+          } catch (err) {
+            msg((pub ? '发布' : '撤回') + '失败：' + err.message, 'err');
+            e.target.disabled = false;
+          }
+          return;
+        }
         if (del) {
           if (!confirm('确定删除该文章？')) return;
           try { await api('/api/posts/' + del, { method: 'DELETE' }); msg('已删除', 'ok'); loadPosts(); }
           catch (err) { msg('删除失败：' + err.message, 'err'); }
         }
       });
+
+      // ---- 抓取任务（仅管理员）----
+      function feedMsg(text, cls) {
+        document.getElementById('feedMsg').textContent = text || '';
+        document.getElementById('feedMsg').className = cls || 'muted';
+      }
+
+      async function loadFeed() {
+        try {
+          var d = await api('/api/feed/status');
+          var s = d.scheduler || {};
+          var c = d.counts || {};
+          document.getElementById('feedStats').innerHTML =
+            '<div class="feed-stat"><b>' + (s.enabled ? esc(s.time) : '未启用') + '</b><span>每日触发（' + esc(s.tz || '') + '）</span></div>' +
+            '<div class="feed-stat"><b>' + (c.pending || 0) + '</b><span>待审草稿</span></div>' +
+            '<div class="feed-stat"><b>' + (c.published || 0) + '</b><span>已发布抓取条目</span></div>' +
+            '<div class="feed-stat"><b>' + (s.lastRunDate ? esc(s.lastRunDate) : '—') + '</b><span>本进程最近执行日</span></div>';
+
+          document.getElementById('feedSources').innerHTML = (d.activeSources || []).map(function (x) {
+            return '<li><a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.name) + '</a>' +
+              '<span class="count">' + esc(x.category) + '</span></li>';
+          }).join('') || '<li><span class="muted">未启用任何来源</span></li>';
+
+          var lr = d.lastRun;
+          document.getElementById('feedLastRun').innerHTML = lr
+            ? '批次 ' + esc(lr.runId) + ' · ' + esc(lr.finishedAt || '') + ' · 触发方式 ' + esc(lr.trigger || '') +
+              '<br>新增 ' + lr.totals.created + ' · 更新 ' + lr.totals.updated + ' · 跳过 ' + lr.totals.skipped + ' · 失败源 ' + lr.totals.failedSources +
+              (d.lastRunRestoredFrom === 'db' ? '<br><span class="muted">（进程重启后由执行留痕还原）</span>' : '')
+            : '<span class="muted">暂无记录</span>';
+
+          document.getElementById('feedLogBody').innerHTML = (d.recentLogs || []).map(function (l) {
+            return '<tr>' +
+              '<td class="muted">' + esc(String(l.created_at).replace('T', ' ').slice(0, 19)) + '</td>' +
+              '<td>' + esc(l.source_name || l.source) + '</td>' +
+              '<td>' + (l.ok ? '<span class="ok">成功</span>' : '<span class="err">失败</span>') + '</td>' +
+              '<td>' + l.items_found + '</td><td>' + l.items_new + '</td><td>' + l.items_upd + '</td><td>' + l.items_skip + '</td>' +
+              '<td class="muted">' + l.duration_ms + 'ms</td>' +
+              '<td class="muted" style="max-width:260px;word-break:break-all;">' + esc(l.error || '') + '</td>' +
+              '</tr>';
+          }).join('') || '<tr><td colspan="9" class="muted">暂无留痕</td></tr>';
+        } catch (e) { feedMsg('状态加载失败：' + e.message, 'err'); }
+      }
+
+      async function runFeed(dryRun) {
+        var btns = ['feedRunDry', 'feedRunNow'].map(function (id) { return document.getElementById(id); });
+        btns.forEach(function (b) { b.disabled = true; });
+        feedMsg(dryRun ? '干跑中（只抓取解析，不写库）…' : '抓取中，请稍候…');
+        try {
+          var d = await api('/api/feed/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dryRun: !!dryRun }),
+          });
+          var t = d.result.totals;
+          feedMsg(
+            (dryRun ? '干跑完成：' : '抓取完成：') + '解析 ' + t.found + ' · 新增 ' + t.created + ' · 更新 ' + t.updated +
+              ' · 跳过 ' + t.skipped + (t.failedSources ? ' · 失败源 ' + t.failedSources : ''),
+            t.failedSources ? 'err' : 'ok'
+          );
+          await loadFeed();
+          if (!dryRun) loadPosts();
+        } catch (e) {
+          feedMsg('执行失败：' + e.message, 'err');
+        } finally {
+          btns.forEach(function (b) { b.disabled = false; });
+        }
+      }
+      document.getElementById('feedRunDry').addEventListener('click', function () { runFeed(true); });
+      document.getElementById('feedRunNow').addEventListener('click', function () {
+        if (!confirm('立即执行一次抓取？新增条目将入库为待审草稿。')) return;
+        runFeed(false);
+      });
+      document.getElementById('feedRefresh').addEventListener('click', function () { loadFeed(); });
 
       // ---- 文件管理 ----
       async function loadFiles() {
@@ -312,7 +452,9 @@
         if (me.role === 'admin') {
           document.getElementById('tabUsers').classList.remove('hidden');
           document.getElementById('tabRemote').classList.remove('hidden');
+          document.getElementById('tabFeed').classList.remove('hidden');
           loadUsers();
+          loadFeed();
         }
         loadPosts();
         loadFiles();

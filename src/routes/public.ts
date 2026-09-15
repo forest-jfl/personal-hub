@@ -6,7 +6,9 @@ import fs from 'fs';
 import { HttpError } from '../middleware/error';
 import * as posts from '../repositories/post.repo';
 import * as filesRepo from '../repositories/file.repo';
+import * as feedRepo from '../repositories/feed.repo';
 import { config } from '../config';
+import { todayInTz } from '../utils/tz';
 
 const router = Router();
 
@@ -58,10 +60,21 @@ router.get('/posts', async (req: Request, res: Response, next: NextFunction) => 
         slug: p.slug,
         category: p.category,
         views: p.views,
+        // 封面：空串表示无封面，前端据此退回纯文字卡片
+        cover: p.cover || '',
         author_name: p.author_name,
         created_at: p.created_at,
         updated_at: p.updated_at,
+        // 抓取来源（手工文章为 null），主页卡片据此显示来源徽标
+        source: p.source,
+        source_name: p.source_name,
+        source_url: p.source_url,
+        fetched_at: p.fetched_at,
         summary: String(p.content || '')
+          // 先整段去掉 Markdown 图片语法：否则正文以插图开头时，
+          // 摘要里会留下一串 alt(/api/public/files/…) 的图床地址。
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+          .replace(/^>.*$/gm, '')
           .replace(/[#>*`\-\[\]!]/g, '')
           .replace(/\s+/g, ' ')
           .trim()
@@ -71,6 +84,23 @@ router.get('/posts', async (req: Request, res: Response, next: NextFunction) => 
       page: result.page,
       pageSize: result.pageSize,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * 「今日更新」：当日抓取并已发布的条目（公开）。
+ * 查询参数 date=YYYY-MM-DD（缺省为目标时区的今天）。
+ * 只返回 published —— 待审草稿不得出现在公开页面。
+ */
+router.get('/daily', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const dateParam = String(req.query.date || '').trim();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : todayInTz(config.feed.tz);
+    const limit = parseInt(String(req.query.limit || config.feed.dailyLimit), 10) || config.feed.dailyLimit;
+    const posts = await feedRepo.listDailyUpdates(date, limit);
+    res.json({ date, tz: config.feed.tz, count: posts.length, posts });
   } catch (e) {
     next(e);
   }

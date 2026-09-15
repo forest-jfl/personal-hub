@@ -12,6 +12,7 @@ import filesRouter from './routes/files';
 import publicRouter from './routes/public';
 import wecomCallbackRouter from './routes/wecom-callback';
 import remoteRouter from './routes/remote';
+import feedRouter from './routes/feed';
 import { requireAuth } from './middleware/auth';
 import { securityHeaders, csrfOriginCheck } from './middleware/security';
 import { errorHandler, notFound } from './middleware/error';
@@ -85,6 +86,8 @@ export function createApp(): Express {
   app.use('/api/wecom', wecomCallbackRouter);
   // 远程控制 REST（票据签发 / 命令清单 / 审计查询，均仅管理员）
   app.use('/api/remote', remoteRouter);
+  // 每日抓取管理（状态查询 / 手动触发，均仅管理员）
+  app.use('/api/feed', feedRouter);
 
   // 页面路由
   const publicDir = path.resolve(__dirname, '..', 'public');
@@ -113,6 +116,11 @@ export function createApp(): Express {
   // 管理控制台（隐藏入口：仅头像下拉菜单可达；未登录跳登录）
   app.get('/console', requireAuth, (_req, res) => {
     res.sendFile(path.join(publicDir, 'console.html'));
+  });
+
+  // 图片库（仅登录可见：列出的是本人上传的图片，属私有素材）
+  app.get('/gallery', requireAuth, (_req, res) => {
+    res.sendFile(path.join(publicDir, 'gallery.html'));
   });
 
   // 兼容旧链接

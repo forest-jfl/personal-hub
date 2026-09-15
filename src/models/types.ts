@@ -22,8 +22,27 @@ export interface Post {
   content: string;
   category: string;
   views: number;
+  /**
+   * 封面图地址。两种合法形态：
+   *  · 站内图床 `/api/public/files/:id/:token`
+   *  · 外部 `https://…`
+   * 空串表示无封面（列表与详情退回纯文字版式）。
+   */
+  cover: string;
   status: PostStatus;
   author_id: number;
+  /** 抓取来源标识；手工文章为 null */
+  source: string | null;
+  /** 来源展示名，如「少数派」 */
+  source_name: string;
+  /** 原文链接 */
+  source_url: string;
+  /** 源条目唯一 ID，与 source 组成硬去重键 */
+  source_guid: string | null;
+  /** 抓取入库时间；手工文章为 null */
+  fetched_at: Date | null;
+  /** 正文摘要指纹 */
+  content_hash: string;
   created_at: Date;
   updated_at: Date;
 }

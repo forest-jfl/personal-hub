@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>图片库 · 半山日志</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0910" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header id="site-nav"></header>
+
+  <div class="page">
+    <div class="card" style="max-width:1000px;margin:0 auto;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <h1 style="margin:0;font-size:20px;font-weight:500;">图片库</h1>
+        <span class="muted" id="galleryStat">加载中…</span>
+        <span style="flex:1;"></span>
+        <button class="btn btn-sm" id="uploadBtn">上传图片</button>
+        <button class="btn btn-sm btn-ghost" id="refreshBtn">刷新</button>
+        <input type="file" id="fileInput" accept="image/*" multiple class="hidden" />
+      </div>
+      <p class="muted" style="font-size:13px;margin:0 0 12px;">
+        这里只列出<strong>你自己</strong>上传的图片。点图片可放大查看；「复制链接」给出的是可直接贴进
+        Markdown 的图床地址，粘贴到正文即自动渲染。
+      </p>
+      <div id="msg" class="muted" style="min-height:18px;margin-bottom:12px;"></div>
+
+      <div class="grid-images" id="grid"></div>
+      <div id="empty" class="muted hidden" style="padding:36px 0;text-align:center;"></div>
+      <div style="display:flex;justify-content:center;margin-top:20px;">
+        <button class="btn btn-ghost btn-sm hidden" id="moreBtn">加载更多</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 放大查看：与文章正文的插图灯箱同一套视觉 -->
+  <div class="modal hidden" id="lightbox" role="dialog" aria-modal="true" aria-label="图片预览">
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h3 id="lbName">图片</h3>
+        <span class="modal-spacer"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="lbCopy">复制链接</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="lbClose">关闭</button>
+      </div>
+      <div class="modal-body">
+        <figure class="lightbox-figure">
+          <img id="lbImg" alt="" />
+          <figcaption id="lbMeta"></figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="/assets/api.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var api = HUB.api, esc = HUB.esc, url = HUB.url;
+      var PAGE = 60;              // 与后端 /api/files/images 的上限（200）留出余量
+      var images = [];            // 已加载的图片（累积，翻页只追加）
+      var total = 0;
+      var coverUsage = {};        // 图床地址 → [用它当封面的文章标题]，删除前用来拦一下
+      var lightboxUrl = '';
+
+      var gridEl = document.getElementById('grid');
+      var emptyEl = document.getElementById('empty');
+      var statEl = document.getElementById('galleryStat');
+      var moreBtn = document.getElementById('moreBtn');
+      var msgEl = document.getElementById('msg');
+      function msg(text, cls) { msgEl.textContent = text || ''; msgEl.className = cls || 'muted'; }
+
+      function renderGrid() {
+        gridEl.innerHTML = images.map(function (f, i) {
+          var link = HUB.fileUrl(f);
+          return '<div class="grid-item" data-idx="' + i + '">' +
+            '<img src="' + esc(link) + '" alt="' + esc(f.original_name) + '" loading="lazy" />' +
+            '<div class="grid-name" title="' + esc(f.original_name) + '">' + esc(f.original_name) + '</div>' +
+            '<div class="grid-actions">' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-act="copy">复制链接</button>' +
+              '<button class="btn btn-ghost btn-sm" type="button" data-act="del">删除</button>' +
+            '</div>' +
+            '</div>';
+        }).join('');
+        emptyEl.classList.toggle('hidden', images.length > 0);
+        moreBtn.classList.toggle('hidden', images.length >= total);
+        var shown = images.length;
+        var bytes = images.reduce(function (s, f) { return s + Number(f.size || 0); }, 0);
+        statEl.textContent = total
+          ? (total + ' 张 · 已显示 ' + shown + ' 张 · 本页 ' + HUB.fmtSize(bytes))
+          : '';
+      }
+
+      async function loadImages(reset) {
+        if (reset) { images = []; }
+        try {
+          var d = await api('/api/files/images?limit=' + PAGE + '&offset=' + images.length);
+          images = images.concat(d.images || []);
+          total = Number(d.total || images.length);
+          msg('');
+          if (!images.length) {
+            emptyEl.textContent = '还没有图片 —— 点右上角「上传图片」，或在写作页的正文工具栏点 🖼 上传。';
+          }
+          renderGrid();
+        } catch (e) {
+          msg('加载失败：' + e.message, 'err');
+        }
+      }
+
+      /* 封面占用：删图之前先看清有没有文章在用它，
+         否则删完文章封面会变成破图，而且没有任何提示 */
+      async function loadCoverUsage() {
+        try {
+          var d = await api('/api/posts');
+          (d.posts || []).forEach(function (p) {
+            var c = HUB.safeCover(p.cover || '');
+            if (!c) return;
+            (coverUsage[c] = coverUsage[c] || []).push(p.title);
+          });
+        } catch (e) { /* 拿不到就不拦，删除仍走服务端权限校验 */ }
+      }
+
+      /* ---------- 上传 ---------- */
+      async function uploadOne(file) {
+        if (!/^image\//.test(file.type)) { msg('跳过非图片文件：' + file.name, 'err'); return false; }
+        if (file.size > 20 * 1024 * 1024) { msg('图片不能超过 20MB：' + file.name, 'err'); return false; }
+        var fd = new FormData();
+        fd.append('file', file);
+        try {
+          var d = await api('/api/files', { method: 'POST', body: fd });
+          images.unshift(d.file);
+          total += 1;
+          return true;
+        } catch (e) {
+          var m = e.message;
+          if (m === 'QUOTA_EXCEEDED') m = '文件空间已用完，请先删除不再使用的图片';
+          else if (m === 'FILE_TOO_LARGE') m = '图片超过单文件大小上限';
+          else if (m && m.indexOf('BLOCKED_FILE_TYPE') === 0) m = '不允许上传该类型文件';
+          msg('「' + file.name + '」上传失败：' + m, 'err');
+          return false;
+        }
+      }
+      document.getElementById('uploadBtn').addEventListener('click', function () {
+        document.getElementById('fileInput').click();
+      });
+      document.getElementById('fileInput').addEventListener('change', async function (e) {
+        var files = Array.prototype.slice.call(e.target.files || []);
+        e.target.value = '';
+        if (!files.length) return;
+        // 串行上传：并发会让配额判定与用量统计互相踩（每个请求各查一次已用量）
+        var ok = 0;
+        for (var i = 0; i < files.length; i++) {
+          msg('上传中 ' + (i + 1) + '/' + files.length + ' …');
+          if (await uploadOne(files[i])) ok++;
+        }
+        renderGrid();
+        msg(ok ? '已上传 ' + ok + ' 张' : '没有新图片入库', ok ? 'ok' : 'err');
+      });
+
+      /* ---------- 删除 / 复制 ---------- */
+      function fileByIdx(idx) { return images[idx]; }
+
+      gridEl.addEventListener('click', async function (e) {
+        var item = e.target.closest('.grid-item');
+        if (!item) return;
+        var f = fileByIdx(Number(item.dataset.idx));
+        if (!f) return;
+        var act = e.target.closest('[data-act]');
+        var link = HUB.fileUrl(f);
+
+        if (act && act.dataset.act === 'copy') {
+          var copied = await HUB.copyText(link);
+          msg(copied ? '链接已复制' : '复制失败，请手动选中链接', copied ? 'ok' : 'err');
+          return;
+        }
+        if (act && act.dataset.act === 'del') {
+          var usedBy = coverUsage[link] || [];
+          var warning = usedBy.length
+            ? '⚠️ 该图正被 ' + usedBy.length + ' 篇文章用作封面：\n· ' + usedBy.join('\n· ') +
+              '\n\n删除后这些文章的封面会变成空白，需要另行设置。\n\n确定删除吗？'
+            : '删除后不可恢复，引用该地址的正文会出现破图。\n\n确定删除「' + f.original_name + '」吗？';
+          if (!window.confirm(warning)) return;
+          try {
+            await api('/api/files/' + f.id, { method: 'DELETE' });
+            images = images.filter(function (x) { return x.id !== f.id; });
+            if (total > 0) total -= 1;
+            delete coverUsage[link];
+            renderGrid();
+            msg('已删除「' + f.original_name + '」', 'ok');
+          } catch (err) {
+            msg('删除失败：' + err.message, 'err');
+          }
+          return;
+        }
+        openLightbox(f);
+      });
+
+      /* ---------- 灯箱 ---------- */
+      var lb = document.getElementById('lightbox');
+      function openLightbox(f) {
+        lightboxUrl = HUB.fileUrl(f);
+        document.getElementById('lbImg').src = lightboxUrl;
+        document.getElementById('lbImg').alt = f.original_name;
+        document.getElementById('lbName').textContent = f.original_name;
+        document.getElementById('lbMeta').textContent =
+          HUB.fmtSize(f.size) + ' · ' + HUB.fmtDate(f.created_at) + ' · ' + lightboxUrl;
+        lb.classList.remove('hidden');
+      }
+      function closeLightbox() {
+        lb.classList.add('hidden');
+        document.getElementById('lbImg').removeAttribute('src');
+        lightboxUrl = '';
+      }
+      document.getElementById('lbClose').addEventListener('click', closeLightbox);
+      document.getElementById('lbCopy').addEventListener('click', async function () {
+        var ok = await HUB.copyText(lightboxUrl);
+        msg(ok ? '链接已复制' : '复制失败，请手动选中链接', ok ? 'ok' : 'err');
+      });
+      lb.addEventListener('click', function (e) { if (e.target === lb) closeLightbox(); });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !lb.classList.contains('hidden')) closeLightbox();
+      });
+
+      /* ---------- 其它 ---------- */
+      moreBtn.addEventListener('click', function () { loadImages(false); });
+      document.getElementById('refreshBtn').addEventListener('click', async function () {
+        await Promise.all([loadImages(true), loadCoverUsage()]);
+        msg('已刷新', 'ok');
+      });
+
+      (async function init() {
+        var me = await HUB.requireMe();
+        if (!me) return;
+        HUB.renderNav(me);
+        await Promise.all([loadImages(true), loadCoverUsage()]);
+      })();
+    })();
+  </script>
+</body>
+</html>

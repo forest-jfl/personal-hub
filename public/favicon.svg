@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="半山">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1726" />
+      <stop offset="1" stop-color="#0a0910" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#g)" />
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.5" fill="none" stroke="#e8b06a" stroke-opacity="0.35" />
+  <!--
+    与个人主页 favicon 同一套做法：字形取笔名首字「半」，暗底 + 金色描边。
+    字体栈显式带中文字体衬线族 —— 只写 Georgia / Times 的话汉字只能靠浏览器兜底，
+    在没装衬线中文字体的机器上会退到黑体，与主页不一致。中文不做斜体。
+  -->
+  <text
+    x="32"
+    y="45"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', 'Songti SC', 'STSong', 'SimSun', serif"
+    font-size="36"
+    fill="#e8b06a"
+  >半</text>
+</svg>

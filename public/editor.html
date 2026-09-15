@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>写文章 · Personal Hub</title>
+  <title>写文章 · 半山日志</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0910" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
@@ -18,6 +21,18 @@
         <button class="btn" id="publishBtn">立即发布</button>
         <button class="btn btn-ghost" id="draftBtn">存为草稿</button>
         <a class="btn btn-ghost" id="consoleLink" href="./console.html">文章列表</a>
+      </div>
+
+      <!-- 封面：留空即无封面，列表与详情会退回纯文字版式（不会留破图框） -->
+      <div class="cover-row">
+        <div class="cover-thumb" id="coverThumb"><span class="muted">无封面</span></div>
+        <div class="cover-actions">
+          <button class="btn btn-ghost btn-sm" type="button" id="coverUploadBtn">上传封面</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="coverPickBtn">从图片库选</button>
+          <button class="btn btn-ghost btn-sm hidden" type="button" id="coverClearBtn">清除封面</button>
+          <span class="muted" id="coverState"></span>
+        </div>
+        <input type="file" id="coverInput" accept="image/*" class="hidden" />
       </div>
 
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
@@ -56,6 +71,21 @@
         <div class="preview-pane post-html" id="previewPane">
           <span class="muted">预览区域（输入正文后自动刷新）</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 封面选择器：从已上传图片里挑一张，避免同一张图为了当封面重复占用空间 -->
+  <div class="modal hidden" id="coverPicker" role="dialog" aria-modal="true" aria-label="从图片库选择封面">
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h3>从图片库选择封面</h3>
+        <span class="modal-spacer"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="coverPickerClose">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="grid-images" id="coverPickerGrid"></div>
+        <p class="muted" id="coverPickerEmpty" style="margin:12px 0 0;"></p>
       </div>
     </div>
   </div>
@@ -208,6 +238,127 @@
         }
       });
 
+      /* ---------- 封面 ----------
+         coverValue 是唯一事实来源，'' 表示无封面。
+         清空时必须真的写回空串：留着一个指向已删图片的地址会在列表与详情渲染成破图。 */
+      var coverValue = '';
+      var $coverThumb = document.getElementById('coverThumb');
+      var $coverState = document.getElementById('coverState');
+      var $coverClear = document.getElementById('coverClearBtn');
+      var $coverInput = document.getElementById('coverInput');
+
+      function renderCover() {
+        var v = HUB.safeCover(coverValue);
+        coverValue = v;
+        if (v) {
+          $coverThumb.innerHTML = '<img src="' + esc(v) + '" alt="封面预览" />';
+          $coverClear.classList.remove('hidden');
+          $coverState.textContent = '';
+        } else {
+          $coverThumb.innerHTML = '<span class="muted">无封面</span>';
+          $coverClear.classList.add('hidden');
+          $coverState.textContent = '未设置封面';
+        }
+      }
+      function setCover(v) {
+        coverValue = String(v || '');
+        renderCover();
+        markDirty();
+      }
+
+      // 上传封面：走同一个 /api/files，成功后设为封面（不插入正文）
+      document.getElementById('coverUploadBtn').addEventListener('click', function () { $coverInput.click(); });
+      $coverInput.addEventListener('change', async function (e) {
+        var file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!/^image\//.test(file.type)) { msg('仅支持图片文件', 'err'); return; }
+        if (file.size > 20 * 1024 * 1024) { msg('图片不能超过 20MB', 'err'); return; }
+        $coverState.textContent = '上传中…';
+        var fd = new FormData();
+        fd.append('file', file);
+        try {
+          var d = await api('/api/files', { method: 'POST', body: fd });
+          setCover(url('/api/public/files/' + d.file.id + '/' + d.file.public_token));
+          msg('封面已设置（保存文章后生效）', 'ok');
+          scheduleAutoSave();
+        } catch (err) {
+          var m = err.message;
+          if (m === 'QUOTA_EXCEEDED') m = '文件空间已用完，请先清理不再使用的文件';
+          else if (m === 'FILE_TOO_LARGE') m = '图片超过单文件大小上限';
+          else if (m && m.indexOf('BLOCKED_FILE_TYPE') === 0) m = '不允许上传该类型文件';
+          msg('封面上传失败：' + m, 'err');
+          renderCover();
+        }
+      });
+
+      $coverClear.addEventListener('click', function () {
+        setCover('');
+        msg('已清除封面（保存文章后生效）', 'ok');
+      });
+
+      /* 从图片库选封面（接口只返回本人图片，与删除接口同一权限口径） */
+      var $coverPicker = document.getElementById('coverPicker');
+      var $coverPickerGrid = document.getElementById('coverPickerGrid');
+      var $coverPickerEmpty = document.getElementById('coverPickerEmpty');
+      var coverPickerLoaded = false;
+
+      function closeCoverPicker() { $coverPicker.classList.add('hidden'); }
+      function openCoverPicker() {
+        $coverPicker.classList.remove('hidden');
+        if (!coverPickerLoaded) loadCoverPicker();
+        else syncPickerSelection();
+      }
+      function syncPickerSelection() {
+        var items = $coverPickerGrid.querySelectorAll('.grid-item');
+        for (var i = 0; i < items.length; i++) {
+          items[i].classList.toggle('is-selected', items[i].dataset.url === coverValue);
+        }
+      }
+      async function loadCoverPicker() {
+        $coverPickerGrid.innerHTML = '';
+        $coverPickerEmpty.textContent = '加载中…';
+        try {
+          var d = await api('/api/files/images?limit=60');
+          var imgs = d.images || [];
+          coverPickerLoaded = true;
+          if (!imgs.length) {
+            $coverPickerEmpty.textContent = '图片库还是空的 —— 用「上传封面」，或在正文工具栏点 🖼 上传即可。';
+            return;
+          }
+          $coverPickerEmpty.textContent = '共 ' + (d.total || imgs.length) + ' 张' +
+            ((d.total || imgs.length) > imgs.length ? '（最多显示 ' + imgs.length + ' 张）' : '') +
+            ' · 点击选为封面';
+          $coverPickerGrid.innerHTML = imgs.map(function (f) {
+            var link = HUB.fileUrl(f);
+            return '<div class="grid-item" data-url="' + esc(link) + '" title="' + esc(f.original_name) + '">' +
+              '<img src="' + esc(link) + '" alt="' + esc(f.original_name) + '" loading="lazy" />' +
+              '<div class="grid-name">' + esc(f.original_name) + '</div>' +
+              '</div>';
+          }).join('');
+          syncPickerSelection();
+        } catch (e) {
+          $coverPickerEmpty.textContent = '图片库加载失败：' + e.message;
+        }
+      }
+      $coverPickerGrid.addEventListener('click', function (e) {
+        var item = e.target.closest('.grid-item');
+        if (!item) return;
+        setCover(item.dataset.url);
+        syncPickerSelection();
+        closeCoverPicker();
+        msg('封面已设置（保存文章后生效）', 'ok');
+      });
+      document.getElementById('coverPickBtn').addEventListener('click', openCoverPicker);
+      document.getElementById('coverPickerClose').addEventListener('click', closeCoverPicker);
+      // 点遮罩关闭；面板内的点击不冒泡到遮罩判定
+      $coverPicker.addEventListener('click', function (e) {
+        if (e.target === $coverPicker) closeCoverPicker();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !$coverPicker.classList.contains('hidden')) closeCoverPicker();
+      });
+
       /* ---------- 快捷键 ---------- */
       document.addEventListener('keydown', function (e) {
         if (!(e.ctrlKey || e.metaKey)) return;
@@ -224,6 +375,7 @@
           title: $title.value.trim(),
           content: $content.value,
           category: $category.value.trim(),
+          cover: coverValue,
           status: status
         };
       }
@@ -232,7 +384,7 @@
         return editingId ? loadedStatus : 'published';
       }
       function snapshot() {
-        return JSON.stringify([editingId, $title.value, $category.value, $content.value]);
+        return JSON.stringify([editingId, $title.value, $category.value, $content.value, coverValue]);
       }
       async function savePost(status, btn) {
         var payload = collectPayload(status);
@@ -262,7 +414,7 @@
           lastSavedSnapshot = snapshot();
           var label = status === 'published' ? '已发布' : '已存为草稿';
           msg(label + ' · ' + new Date().toLocaleTimeString(), 'ok');
-          document.title = (payload.title) + ' · Personal Hub';
+          document.title = (payload.title) + ' · 半山日志';
           scheduleAutoSave();
         } catch (e) {
           msg('保存失败：' + e.message, 'err');
@@ -323,10 +475,13 @@
           if (!raw) return;
           var arr = JSON.parse(raw);
           if (arr[0]) return; // 仅恢复"新文章"本地草稿
-          if (arr[1] || arr[3]) {
+          if (arr[1] || arr[3] || arr[4]) {
             $title.value = arr[1] || '';
             $category.value = arr[2] || '';
             $content.value = arr[3] || '';
+            // 第 5 位是本次新增的封面；旧草稿只有 4 位，读不到即视为无封面
+            coverValue = HUB.safeCover(arr[4] || '');
+            renderCover();
             msg('已恢复上次未保存的本地草稿', 'ok');
           }
         } catch (e) { /* ignore */ }
@@ -341,7 +496,14 @@
       }
 
       async function loadEditing() {
-        if (!editingId) { restoreLocalDraft(); $title.focus(); renderMeta(); renderPreview(); return; }
+        if (!editingId) {
+          restoreLocalDraft();
+          renderCover();
+          $title.focus();
+          renderMeta();
+          renderPreview();
+          return;
+        }
         try {
           var d = await api('/api/posts');
           var p = d.posts.find(function (x) { return x.id === editingId; });
@@ -350,7 +512,11 @@
           $category.value = p.category || '';
           loadedStatus = p.status;
           $content.value = p.content || '';
-          document.title = '编辑：' + p.title + ' · Personal Hub';
+          // 历史上可能存过不合规的封面地址（如 http://），前端再过滤一层，
+          // 与后端 isValidCover 同规则：不过关即按"无封面"处理
+          coverValue = HUB.safeCover(p.cover || '');
+          renderCover();
+          document.title = '编辑：' + p.title + ' · 半山日志';
           lastSavedSnapshot = snapshot();
           renderMeta();
           renderPreview();

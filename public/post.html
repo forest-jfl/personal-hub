@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>文章 · Personal Hub</title>
+  <title>文章 · 半山日志</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0910" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
@@ -19,11 +22,11 @@
 
       <aside class="layout-side">
         <div class="card">
-          <h3 class="side-title">文章信息</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">01</span>文章信息</h3>
           <ul class="side-list" id="postInfo"><li><span class="muted">加载中…</span></li></ul>
         </div>
         <div class="card">
-          <h3 class="side-title">热门文章</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">02</span>热门文章</h3>
           <ul class="side-list" id="hotList"><li><span class="muted">加载中…</span></li></ul>
         </div>
         <div class="card">
@@ -33,7 +36,24 @@
     </div>
   </div>
 
-  <footer class="site-footer">Personal Hub · 由 Node.js + Express 驱动 · <a href="https://tools.jiangfulin.com/" style="color:inherit;">在线工具箱</a></footer>
+  <footer class="site-footer">半山日志 · 由 Node.js + Express 驱动 · <a href="https://tools.jiangfulin.com/">在线工具箱</a></footer>
+
+  <!-- 灯箱：点正文插图放大。显隐用 .hidden 类，不用 hidden 属性。 -->
+  <div class="modal hidden" id="lightbox" role="dialog" aria-modal="true" aria-label="查看大图">
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h3 id="lightboxTitle">查看大图</h3>
+        <span class="modal-spacer"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="lightboxClose">关闭</button>
+      </div>
+      <div class="modal-body">
+        <figure class="lightbox-figure">
+          <img id="lightboxImg" alt="" />
+          <figcaption id="lightboxCaption"></figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
 
   <script src="/config.js"></script>
   <script src="/assets/api.js"></script>
@@ -49,23 +69,36 @@
         try {
           var d = await api('/api/public/posts/' + encodeURIComponent(slug));
           var p = d.post;
-          document.title = p.title + ' · Personal Hub';
+          document.title = p.title + ' · 半山日志';
           var cat = p.category ? '<a class="tag" href="./?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
+          var src = (p.source && p.source_name)
+            ? '<a class="src-badge" href="' + esc(p.source_url || '#') + '" target="_blank" rel="noopener noreferrer">' + esc(p.source_name) + ' <span class="ext">↗</span></a>'
+            : '';
+          // 封面：safeCover 过滤掉非法值，宁可没有头图也不留破图
+          var cover = HUB.safeCover(p.cover);
+          var coverHtml = cover
+            ? '<img class="post-cover" src="' + esc(cover) + '" alt="" decoding="async" />'
+            : '';
           box.innerHTML =
+            coverHtml +
             '<h1>' + esc(p.title) + '</h1>' +
             '<div class="post-meta" style="margin-bottom:16px;">' +
+            '  ' + src +
             '  <span>' + esc(p.author_name || '佚名') + '</span>' +
             '  <span>发布于 ' + HUB.fmtDate(p.created_at) + '</span>' +
             '  <span>阅读 ' + (p.views || 0) + '</span>' +
             '  ' + cat +
             '</div>' +
             '<div class="post-html">' + p.html + '</div>';
+          enhanceImages(box);
           document.getElementById('postInfo').innerHTML =
             '<li><span class="muted">作者</span><span>' + esc(p.author_name || '佚名') + '</span></li>' +
             '<li><span class="muted">发布</span><span>' + HUB.fmtDate(p.created_at) + '</span></li>' +
             '<li><span class="muted">更新</span><span>' + HUB.fmtDate(p.updated_at) + '</span></li>' +
             '<li><span class="muted">阅读</span><span>' + (p.views || 0) + '</span></li>' +
-            '<li><span class="muted">分类</span><span>' + esc(p.category || '未分类') + '</span></li>';
+            '<li><span class="muted">分类</span><span>' + esc(p.category || '未分类') + '</span></li>' +
+            (p.source_name ? '<li><span class="muted">来源</span><span>' + esc(p.source_name) + '</span></li>' : '') +
+            (p.source_url ? '<li><span class="muted">原文</span><a href="' + esc(p.source_url) + '" target="_blank" rel="noopener noreferrer">前往阅读 ↗</a></li>' : '');
         } catch (e) {
           box.innerHTML = '<div class="err">文章加载失败：' + esc(e.message) + '</div>';
         }
@@ -81,6 +114,75 @@
             : '<li><span class="muted">暂无数据</span></li>';
         } catch (e) { /* ignore */ }
       }
+
+      /* ---------- 图片增强：懒加载 / alt 转图注 / 点击放大 ---------- */
+
+      /**
+       * 给正文插图补一层阅读体验。
+       *
+       * 后端 sanitize 已放行 img，但 Markdown 只给得出 alt，而读者看不到 alt。
+       * 于是原地包一层 figure，把 alt 变成真正的图注；顺带补 loading=lazy
+       * （长文里排在首屏之外的图不必下载）。
+       */
+      function enhanceImages(root) {
+        var imgs = root.querySelectorAll('.post-html img');
+        for (var i = 0; i < imgs.length; i++) {
+          var img = imgs[i];
+          if (img.dataset.hubEnhanced) continue;   // 幂等：重复调用不会套两层 figure
+          img.dataset.hubEnhanced = '1';
+          img.setAttribute('loading', 'lazy');
+          img.setAttribute('decoding', 'async');
+
+          var alt = img.getAttribute('alt') || '';
+          // Markdown 里独占一段的图片会被包进 <p>；figure 是块级流内容，塞进 <p> 属非法嵌套，
+          // 还会让 figure 的上下边距与 <p> 的边距叠成双倍。整段只有这一张图时直接替换掉 <p>。
+          var parent = img.parentNode;
+          var onlyImg = !!parent && parent.tagName === 'P' &&
+            parent.querySelectorAll('img').length === 1 && parent.textContent.trim() === '';
+          var anchor = onlyImg ? parent : img;
+          var fig = document.createElement('figure');
+          anchor.parentNode.insertBefore(fig, anchor);
+          fig.appendChild(img);
+          if (onlyImg) parent.parentNode.removeChild(parent);
+          if (alt) {
+            var cap = document.createElement('figcaption');
+            cap.textContent = alt;
+            fig.appendChild(cap);
+          }
+          img.addEventListener('click', function () {
+            openLightbox(this.getAttribute('src'), this.getAttribute('alt') || '');
+          });
+        }
+      }
+
+      /* ---------- 灯箱 ---------- */
+      function openLightbox(src, alt) {
+        if (!src) return;
+        var box = document.getElementById('lightbox');
+        var big = document.getElementById('lightboxImg');
+        big.src = src;
+        big.alt = alt;
+        document.getElementById('lightboxTitle').textContent = alt || '查看大图';
+        document.getElementById('lightboxCaption').textContent = alt;
+        box.classList.remove('hidden');
+        document.getElementById('lightboxClose').focus();
+      }
+      function closeLightbox() {
+        document.getElementById('lightbox').classList.add('hidden');
+        // 移除 src 而不是置空：src="" 会让浏览器把当前页面地址当图片再请求一次
+        document.getElementById('lightboxImg').removeAttribute('src');
+      }
+      document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
+      // 点遮罩关闭：只认「点在自己身上」，否则点面板内部也会被误判为关
+      document.getElementById('lightbox').addEventListener('click', function (e) {
+        if (e.target === this) closeLightbox();
+      });
+      // Esc 关闭：只能靠鼠标关的弹层，等于把键盘用户关在里面
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !document.getElementById('lightbox').classList.contains('hidden')) {
+          closeLightbox();
+        }
+      });
 
       (async function init() {
         HUB.renderNav(await HUB.fetchMe());

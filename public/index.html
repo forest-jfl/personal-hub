@@ -3,16 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Personal Hub · 个人博客</title>
+  <title>半山日志</title>
+  <!--
+    描述里刻意只写"做什么"，不写"是谁做过什么"：
+    meta description 是最容易被搜索引擎抓去当人物摘要的字段。
+  -->
+  <meta name="description" content="半山的数据与工具笔记：离线优先的工具链、数据清洗与建模、以及自建服务里踩过的坑。" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0910" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
   <header id="site-nav"></header>
 
+  <!-- 首屏：与主页同一套视觉语言（衬线大标题 + 时钟/引言玻璃面板）。
+       刻意不做整屏高度 —— 博客首屏下面紧接着就是正文列表，
+       占满一屏会把内容全推到折叠线以下，代价大于观感收益。 -->
+  <section class="hero" id="hero">
+    <div class="hero-inner">
+      <p class="hero-eyebrow">
+        <span class="hero-dot" aria-hidden="true"></span>
+        数据工程 / 全栈开发 / 自建服务
+      </p>
+      <h1 class="hero-title">
+        <span class="hero-title-cn">半山日志</span>
+        <span class="hero-title-en" aria-hidden="true">Banshan Log</span>
+      </h1>
+      <p class="hero-lead">把零散、脏乱的数据整理成能支撑判断的东西，顺手把踩过的坑记下来。</p>
+      <div class="hero-panel">
+        <div class="hero-clock">
+          <span class="clock-time" id="clockTime">--:--:--</span>
+          <span class="clock-meta">
+            <span id="clockDate">—</span>
+            <span class="clock-sep" aria-hidden="true">·</span>
+            <span>UTC+8</span>
+          </span>
+        </div>
+        <!-- 引言的首条写死在 HTML 里：脚本没跑起来时它仍是一句完整的话 -->
+        <p class="hero-quote" id="heroQuote">先把口径定下来，再谈结论。</p>
+      </div>
+    </div>
+  </section>
+
   <div class="page">
     <div class="layout">
       <!-- 左侧主栏 -->
       <main class="layout-main" id="mainArea">
+        <!-- 今日更新：当日抓取已发布的条目（无则整块隐藏） -->
+        <section class="card daily-panel hidden" id="dailyArea"></section>
+
         <div class="filter-bar" id="filterBar">
           <input type="text" class="search-input" id="searchInput" placeholder="搜索文章标题…" />
           <select id="categorySelect" title="按分类筛选">
@@ -33,9 +73,9 @@
       <!-- 右侧边栏 -->
       <aside class="layout-side">
         <div class="card side-author">
-          <span class="avatar" id="sideAvatar">B</span>
-          <div class="name" id="sideName">Personal Hub</div>
-          <div class="muted" id="sideDesc">记录技术与生活</div>
+          <span class="avatar" id="sideAvatar">半</span>
+          <div class="name" id="sideName">半山</div>
+          <div class="muted" id="sideDesc">数据与工具笔记</div>
           <div class="side-stats">
             <div><b id="statPosts">-</b><span>文章</span></div>
             <div><b id="statViews">-</b><span>总阅读</span></div>
@@ -44,23 +84,23 @@
         </div>
 
         <div class="card">
-          <h3 class="side-title">热门文章</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">01</span>热门文章</h3>
           <ul class="side-list" id="hotList"><li><span class="muted">加载中…</span></li></ul>
         </div>
 
         <div class="card">
-          <h3 class="side-title">分类</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">02</span>分类</h3>
           <ul class="side-list" id="catList"><li><span class="muted">加载中…</span></li></ul>
         </div>
 
         <div class="card">
-          <h3 class="side-title">归档</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">03</span>归档</h3>
           <p class="muted" style="margin:0 0 6px;">按发布月份浏览历史文章</p>
           <ul class="side-list" id="archiveList"><li><span class="muted">加载中…</span></li></ul>
         </div>
 
         <div class="card">
-          <h3 class="side-title">快捷入口</h3>
+          <h3 class="side-title"><span class="sec-idx" aria-hidden="true">04</span>快捷入口</h3>
           <div class="side-quick" id="quickLinks">
             <a href="./login.html">登录 / 注册</a>
           </div>
@@ -69,10 +109,11 @@
     </div>
   </div>
 
-  <footer class="site-footer">Personal Hub · 由 Node.js + Express 驱动 · <a href="https://tools.jiangfulin.com/" style="color:inherit;">在线工具箱</a></footer>
+  <footer class="site-footer">半山日志 · 由 Node.js + Express 驱动 · <a href="https://tools.jiangfulin.com/">在线工具箱</a></footer>
 
   <script src="/config.js"></script>
   <script src="/assets/api.js"></script>
+  <script src="/assets/hero.js"></script>
   <script>
     (function () {
       'use strict';
@@ -98,14 +139,28 @@
           } else {
             box.innerHTML = d.posts.map(function (p) {
               var cat = p.category ? '<a class="tag" href="./?category=' + encodeURIComponent(p.category) + '">' + esc(p.category) + '</a>' : '';
-              return '<div class="card post-card">' +
+              // 抓取条目：显示来源徽标（点击直达原文），便于读者核对与追溯
+              var src = (p.source && p.source_name)
+                ? '<a class="src-badge" href="' + esc(p.source_url || '#') + '" target="_blank" rel="noopener noreferrer" title="来自 ' + esc(p.source_name) + '，点击阅读原文">' + esc(p.source_name) + ' <span class="ext">↗</span></a>'
+                : '';
+              // 封面先过 safeCover：非法值一律当作「没有封面」，
+              // 于是卡片退回纯文字版式，而不是留一个加载失败的破图框。
+              var cover = HUB.safeCover(p.cover);
+              var thumb = cover
+                ? '<div class="post-thumb"><img src="' + esc(cover) + '" alt="" loading="lazy" decoding="async" /></div>'
+                : '';
+              return '<div class="card post-card' + (cover ? ' has-cover' : '') + '">' +
+                thumb +
+                '<div class="post-body">' +
                 '<h2><a href="./post.html?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h2>' +
                 '<div class="summary">' + esc(p.summary || '（无摘要）') + '</div>' +
                 '<div class="post-meta">' +
+                '  ' + src +
                 '  <span>' + esc(p.author_name || '佚名') + '</span>' +
                 '  <span>' + HUB.fmtDate(p.created_at) + '</span>' +
                 '  <span>阅读 ' + p.views + '</span>' +
                 '  ' + cat +
+                '</div>' +
                 '</div></div>';
             }).join('');
           }
@@ -159,6 +214,39 @@
         } catch (e) { /* 侧边栏失败不打断主流程 */ }
       }
 
+      /**
+       * 「今日更新」区块：当日抓取并已发布的条目。
+       * 后端只返回 published，故草稿（待审）不会出现在公开主页。
+       */
+      async function loadDaily() {
+        var box = document.getElementById('dailyArea');
+        if (!box) return;
+        try {
+          var d = await api('/api/public/daily');
+          if (!d.posts || !d.posts.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+          box.innerHTML =
+            '<div class="daily-head">' +
+            '  <h3>今日更新</h3>' +
+            '  <span class="daily-date">' + esc(d.date) + '</span>' +
+            '  <span class="daily-note">每日 08:30 自动抓取整理 · 共 ' + d.count + ' 条</span>' +
+            '</div>' +
+            '<ul class="daily-list">' + d.posts.map(function (p, i) {
+              var origin = p.source_url
+                ? '<a class="origin" href="' + esc(p.source_url) + '" target="_blank" rel="noopener noreferrer">' + esc(p.source_name || '原文') + ' ↗</a>'
+                : '';
+              return '<li>' +
+                '<span class="idx">' + (i + 1) + '</span>' +
+                '<a class="title" href="./post.html?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a>' +
+                origin +
+                '</li>';
+            }).join('') + '</ul>';
+          box.classList.remove('hidden');
+        } catch (e) {
+          // 抓取区块失败不影响主列表
+          box.classList.add('hidden');
+        }
+      }
+
       // 月份筛选徽标（可点击清除）
       function renderMonthBadge() {
         var badge = document.getElementById('monthFilterBadge');
@@ -176,9 +264,14 @@
         if (!view) return;
         var main = document.getElementById('mainArea');
         if (view === 'about') {
-          main.innerHTML = '<div class="card"><h2 style="margin-top:0;">关于本站</h2>' +
-            '<p class="muted" style="line-height:1.9;">Personal Hub 是一个自托管的个人博客与文件管理站，' +
-            '支持 Markdown 写作、分类归档与文件分发，可本地运行，也可将前端托管至 GitHub Pages / Gitee Pages。</p></div>';
+          main.innerHTML = '<div class="card about-view">' +
+            '<h2>关于本站</h2>' +
+            '<p>这里是半山的数据与工具笔记：离线优先的工具链、从原始表到可用指标之间那一段、' +
+            '以及自建服务里踩过的坑。写法偏记录而非教程 —— 多半是自己踩完坑顺手写下来的。</p>' +
+            '<p>站点自托管，Express + TypeScript + MariaDB，前端零构建：' +
+            '刻意不引入会腐化的工具链，改样式就是改一个 CSS 文件。' +
+            '支持 Markdown 写作、分类归档与文件分发。</p>' +
+            '</div>';
           document.getElementById('pager').classList.add('hidden');
         }
         // categories / archive 视图沿用主列表，仅高亮导航；数据已在侧边栏展示
@@ -221,7 +314,9 @@
           document.getElementById('sideName').textContent = me.display_name || me.username;
           document.getElementById('sideDesc').textContent = me.role === 'admin' ? '管理员' : '站点用户';
           document.getElementById('quickLinks').innerHTML =
-            '<a href="' + HUB.url('/editor') + '">✎ 写文章</a><a href="' + HUB.url('/console') + '">🗂 管理控制台</a>';
+            '<a href="' + HUB.url('/editor') + '">✎ 写文章</a>' +
+            '<a href="' + HUB.url('/gallery') + '">🖼 图片库</a>' +
+            '<a href="' + HUB.url('/console') + '">🗂 管理控制台</a>';
         }
         // 搜索框预填
         if (state.category) {
@@ -231,6 +326,7 @@
         renderMonthBadge();
         renderView();
         loadMeta();
+        loadDaily();
         loadPosts();
       })();
     })();

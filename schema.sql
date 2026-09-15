@@ -15,22 +15,58 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 说明：source / source_guid 允许为 NULL（手工撰写文章为 NULL），
+-- 以配合唯一键 uk_source_guid 实现「抓取条目硬去重」而不影响存量手工文章
+-- （MySQL/MariaDB 唯一索引允许多行 NULL）。
 CREATE TABLE IF NOT EXISTS posts (
-  id         INT          NOT NULL AUTO_INCREMENT,
-  title      VARCHAR(255) NOT NULL,
-  slug       VARCHAR(255) NOT NULL,
-  content    MEDIUMTEXT   NOT NULL,
-  category   VARCHAR(64)  NOT NULL DEFAULT '',
-  views      INT          NOT NULL DEFAULT 0,
-  status     ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
-  author_id  INT          NOT NULL,
-  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id           INT          NOT NULL AUTO_INCREMENT,
+  title        VARCHAR(255) NOT NULL,
+  slug         VARCHAR(255) NOT NULL,
+  content      MEDIUMTEXT   NOT NULL,
+  category     VARCHAR(64)  NOT NULL DEFAULT '',
+  views        INT          NOT NULL DEFAULT 0,
+  -- 封面：存图床路径（/api/public/files/:id/:token）或 https 外链；空串 = 无封面。
+  -- 刻意存地址而不是 files.id：正文插图用的也是同一形态，
+  -- 两处一致就不必为了取封面再 JOIN 一次 files。
+  cover        VARCHAR(512) NOT NULL DEFAULT '',
+  status       ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
+  author_id    INT          NOT NULL,
+  -- ---- 每日抓取来源信息（手工文章全为 NULL / 空串）----
+  source       VARCHAR(32)  NULL DEFAULT NULL COMMENT '来源标识，如 sspai / infoq',
+  source_name  VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '来源展示名',
+  source_url   VARCHAR(768) NOT NULL DEFAULT '' COMMENT '原文链接',
+  source_guid  VARCHAR(191) NULL DEFAULT NULL COMMENT '源条目唯一 ID（guid/id）',
+  fetched_at   DATETIME     NULL DEFAULT NULL COMMENT '抓取入库时间',
+  content_hash CHAR(32)     NOT NULL DEFAULT '' COMMENT '正文摘要指纹，用于更新判断',
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_slug (slug),
+  UNIQUE KEY uk_source_guid (source, source_guid),
   KEY idx_status (status),
   KEY idx_category (category),
+  KEY idx_source_fetched (source, fetched_at),
   CONSTRAINT fk_post_author FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 每日抓取任务的执行留痕（每源每次一行），供控制台查看任务健康度
+CREATE TABLE IF NOT EXISTS feed_fetch_log (
+  id          BIGINT       NOT NULL AUTO_INCREMENT,
+  run_id      VARCHAR(40)  NOT NULL DEFAULT '' COMMENT '同一次任务运行的批次标识',
+  source      VARCHAR(32)  NOT NULL DEFAULT '',
+  source_name VARCHAR(64)  NOT NULL DEFAULT '',
+  mode        VARCHAR(16)  NOT NULL DEFAULT 'live' COMMENT 'live | dry-run',
+  ok          TINYINT      NOT NULL DEFAULT 0,
+  items_found INT          NOT NULL DEFAULT 0,
+  items_new   INT          NOT NULL DEFAULT 0,
+  items_upd   INT          NOT NULL DEFAULT 0,
+  items_skip  INT          NOT NULL DEFAULT 0,
+  duration_ms INT          NOT NULL DEFAULT 0,
+  error       VARCHAR(512) NOT NULL DEFAULT '',
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_created (created_at),
+  KEY idx_source (source)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS files (

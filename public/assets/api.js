@@ -1,4 +1,4 @@
-/* Personal Hub 共享工具：API 封装、格式化、顶部导航渲染 */
+/* 半山日志 共享工具：API 封装、格式化、顶部导航渲染 */
 (function () {
   'use strict';
 
@@ -44,16 +44,70 @@
   }
 
   /**
+   * 复制文本到剪贴板，返回是否成功。
+   * navigator.clipboard 只在安全上下文（https / localhost）存在，
+   * 用局域网 http 打开站点时它是 undefined —— 保留 execCommand 兜底，
+   * 否则「复制链接」在非 https 环境下会静默失效，用户以为复制了其实没有。
+   */
+  async function copyText(text) {
+    var s = String(text == null ? '' : text);
+    if (!s) return false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(s); return true; } catch (e) { /* 落到兜底 */ }
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = s;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 由 files 记录拼出对外可用的图床地址。
+   * 抽出来是因为「正文插图、封面、图片库」三处都要拼它，
+   * 一旦 URL 形态变了（比如以后换成 /f/<token>），只改这一处。
+   */
+  function fileUrl(f) {
+    if (!f || !f.id || !f.public_token) return '';
+    return url('/api/public/files/' + f.id + '/' + f.public_token);
+  }
+
+  /**
+   * 封面地址规范化：只认本站图床路径与 https 外链，其余一律返回空串。
+   * 与后端 src/utils/cover.ts 的规则同源，这里是前端的第二道拦截 ——
+   * 作用是让写错的值在页面上直接表现为「没有封面」，而不是塞进 img src 里。
+   */
+  function safeCover(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    if (/^\/api\/public\/files\/\d+\/[a-f0-9]{16,64}$/.test(s)) return s;
+    if (/^https:\/\/[^\s]+$/i.test(s)) return s;
+    return '';
+  }
+
+  /**
    * 渲染顶部导航到 #site-nav。
    * me: 当前用户（null 表示未登录）
    */
   function renderNav(me) {
     var nav = document.getElementById('site-nav');
     if (!nav) return;
-    // editor/console 仅由后端同源托管：任何部署形态下都指向 API_BASE，
+    // editor/console/gallery 仅由后端同源托管：任何部署形态下都指向 API_BASE，
     // 避免 Pages 托管版里相对路径指向 Pages 域名而 404
     var editorHref = url('/editor');
     var consoleHref = url('/console');
+    var galleryHref = url('/gallery');
+    // 首页判定：净路径 / 、显式 /index.html、以及带查询串的首页视图都算
+    var onHome = location.pathname === '/' || /\/index\.html$/.test(location.pathname);
     var loginArea;
     if (me) {
       var initial = (me.display_name || me.username || '?').slice(0, 1).toUpperCase();
@@ -68,6 +122,7 @@
         '  <div class="dropdown hidden" id="userMenu">' +
         '    <div class="dropdown-role">' + esc(roleTag) + ' · ' + esc(me.username) + '</div>' +
         '    <a href="' + editorHref + '">✎ 写文章</a>' +
+        '    <a href="' + galleryHref + '">🖼 图片库</a>' +
         '    <a href="' + consoleHref + '">🗂 管理控制台</a>' +
         '    <a href="' + consoleHref + '?tab=account">🔑 修改密码</a>' +
         '    <a href="#" id="logoutLink">⎋ 退出登录</a>' +
@@ -78,12 +133,17 @@
     }
     nav.innerHTML =
       '<div class="nav-inner">' +
-      '  <a class="brand" href="./">Personal<span>Hub</span></a>' +
-      '  <nav class="nav-links">' +
-      '    <a href="./" class="' + (location.pathname === '/' || /\/(index\.html)?$/.test(location.pathname) ? 'active' : '') + '">首页</a>' +
-      '    <a href="./?view=categories">分类</a>' +
-      '    <a href="./?view=archive">归档</a>' +
-      '    <a href="./?view=about">关于</a>' +
+      '  <a class="brand" href="./">' +
+      '    <span class="brand-mark" aria-hidden="true">半</span>' +
+      '    <span class="brand-word">半山</span>' +
+      '    <span class="brand-sub">日志</span>' +
+      '  </a>' +
+      // 编号与主页导航同一套语言（01 关于 / 02 作品 …）
+      '  <nav class="nav-links" aria-label="主导航">' +
+      '    <a href="./" class="' + (onHome ? 'active' : '') + '"><span>01</span>首页</a>' +
+      '    <a href="./?view=categories"><span>02</span>分类</a>' +
+      '    <a href="./?view=archive"><span>03</span>归档</a>' +
+      '    <a href="./?view=about"><span>04</span>关于</a>' +
       '  </nav>' +
       '  <div class="nav-spacer"></div>' +
       loginArea +
@@ -134,6 +194,9 @@
     fmtSize: fmtSize,
     fmtDate: fmtDate,
     qs: qs,
+    copyText: copyText,
+    fileUrl: fileUrl,
+    safeCover: safeCover,
     renderNav: renderNav,
     fetchMe: fetchMe,
     requireMe: requireMe

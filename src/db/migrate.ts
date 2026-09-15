@@ -28,17 +28,27 @@ export async function runMigrations(): Promise<void> {
   logger.info('数据库结构已确保（schema.sql）');
 
   await ensureColumns();
+  await ensureIndexes();
   await seedAdmin();
 }
 
-/** 存量库补列：posts.category / posts.views / users.status / files.public_token（schema.sql 的 IF NOT EXISTS 只管建表）。 */
+/** 存量库补列：posts 的来源字段 / users.status / files.public_token（schema.sql 的 IF NOT EXISTS 只管建表）。 */
 async function ensureColumns(): Promise<void> {
   const wanted: Array<{ table: string; column: string; ddl: string }> = [
     { table: 'posts', column: 'category', ddl: "ALTER TABLE posts ADD COLUMN category VARCHAR(64) NOT NULL DEFAULT ''" },
     { table: 'posts', column: 'views', ddl: 'ALTER TABLE posts ADD COLUMN views INT NOT NULL DEFAULT 0' },
+    // 封面：与正文插图同形态（图床路径或 https 外链），空串表示无封面
+    { table: 'posts', column: 'cover', ddl: "ALTER TABLE posts ADD COLUMN cover VARCHAR(512) NOT NULL DEFAULT ''" },
     { table: 'users', column: 'status', ddl: "ALTER TABLE users ADD COLUMN status ENUM('active', 'disabled') NOT NULL DEFAULT 'active'" },
     { table: 'users', column: 'register_ip', ddl: "ALTER TABLE users ADD COLUMN register_ip VARCHAR(64) NOT NULL DEFAULT ''" },
     { table: 'files', column: 'public_token', ddl: "ALTER TABLE files ADD COLUMN public_token VARCHAR(64) NOT NULL DEFAULT ''" },
+    // ---- 每日抓取（来源字段允许 NULL：唯一索引允许多行 NULL，故不影响存量手工文章）----
+    { table: 'posts', column: 'source', ddl: 'ALTER TABLE posts ADD COLUMN source VARCHAR(32) NULL DEFAULT NULL' },
+    { table: 'posts', column: 'source_name', ddl: "ALTER TABLE posts ADD COLUMN source_name VARCHAR(64) NOT NULL DEFAULT ''" },
+    { table: 'posts', column: 'source_url', ddl: "ALTER TABLE posts ADD COLUMN source_url VARCHAR(768) NOT NULL DEFAULT ''" },
+    { table: 'posts', column: 'source_guid', ddl: 'ALTER TABLE posts ADD COLUMN source_guid VARCHAR(191) NULL DEFAULT NULL' },
+    { table: 'posts', column: 'fetched_at', ddl: 'ALTER TABLE posts ADD COLUMN fetched_at DATETIME NULL DEFAULT NULL' },
+    { table: 'posts', column: 'content_hash', ddl: "ALTER TABLE posts ADD COLUMN content_hash CHAR(32) NOT NULL DEFAULT ''" },
   ];
   for (const item of wanted) {
     const [rows] = await pool.query(
@@ -57,6 +67,36 @@ async function ensureColumns(): Promise<void> {
   // 修复历史乱码文件名（multer latin1 解码问题）
   const fixedNames = await fixMojibakeNames();
   if (fixedNames > 0) logger.info({ count: fixedNames }, '已修复乱码文件名');
+}
+
+/**
+ * 存量库补索引：uk_source_guid 是抓取条目硬去重的唯一依据，缺它会导致重复入库。
+ * 先查 information_schema.STATISTICS 判断，避免重复建索引报错。
+ */
+async function ensureIndexes(): Promise<void> {
+  const wanted: Array<{ table: string; index: string; ddl: string }> = [
+    {
+      table: 'posts',
+      index: 'uk_source_guid',
+      ddl: 'ALTER TABLE posts ADD UNIQUE KEY uk_source_guid (source, source_guid)',
+    },
+    {
+      table: 'posts',
+      index: 'idx_source_fetched',
+      ddl: 'ALTER TABLE posts ADD KEY idx_source_fetched (source, fetched_at)',
+    },
+  ];
+  for (const item of wanted) {
+    const [rows] = await pool.query(
+      'SELECT COUNT(*) AS n FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?',
+      [item.table, item.index]
+    );
+    const n = (rows as Array<{ n: number }>)[0]?.n ?? 0;
+    if (!n) {
+      await pool.query(item.ddl);
+      logger.info({ table: item.table, index: item.index }, '已补充缺失索引');
+    }
+  }
 }
 
 /** 若不存在则播种初始管理员（凭据来自环境变量）。 */

@@ -63,6 +63,23 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+/**
+ * 图片库：当前账号上传过的图片（倒序、分页）。
+ * 供图片库页面与编辑器「选封面」共用。
+ * 刻意只返回**本人**文件 —— 与下面的删除接口同一权限口径，
+ * 否则图片库会变成一条看到别人上传内容的旁路。
+ */
+router.get('/images', async (req, res, next) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || '60'), 10) || 60));
+    const offset = Math.max(0, parseInt(String(req.query.offset || '0'), 10) || 0);
+    const { items, total } = await filesRepo.listImages(req.session!.userId!, { limit, offset });
+    res.json({ images: items, total, limit, offset });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // 包装 multer 以便把 multer 错误映射为可读的 HTTP 状态码
 function uploadMiddleware(req: any, res: any, next: any) {
   upload.single('file')(req, res, (err: any) => {

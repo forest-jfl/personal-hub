@@ -24,3 +24,8 @@ export async function testConnection(): Promise<void> {
     conn.release();
   }
 }
+
+/** 关闭连接池（CLI 等短生命周期入口用，避免进程挂住不退出）。 */
+export async function closePool(): Promise<void> {
+  await pool.end();
+}

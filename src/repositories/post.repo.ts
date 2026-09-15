@@ -6,12 +6,21 @@ export async function createPost(input: {
   slug: string;
   content: string;
   category?: string;
+  cover?: string;
   status: PostStatus;
   author_id: number;
 }): Promise<Post> {
   const [result] = await pool.query(
-    'INSERT INTO posts (title, slug, content, category, status, author_id) VALUES (?, ?, ?, ?, ?, ?)',
-    [input.title, input.slug, input.content, input.category || '', input.status, input.author_id]
+    'INSERT INTO posts (title, slug, content, category, cover, status, author_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [
+      input.title,
+      input.slug,
+      input.content,
+      input.category || '',
+      input.cover || '',
+      input.status,
+      input.author_id,
+    ]
   );
   const id = (result as any).insertId;
   const post = await getPostById(id);
@@ -131,7 +140,14 @@ export async function getBlogMeta(): Promise<{
 
 export async function updatePost(
   id: number,
-  input: Partial<{ title: string; slug: string; content: string; category: string; status: PostStatus }>
+  input: Partial<{
+    title: string;
+    slug: string;
+    content: string;
+    category: string;
+    cover: string;
+    status: PostStatus;
+  }>
 ): Promise<Post | null> {
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -150,6 +166,10 @@ export async function updatePost(
   if (input.category !== undefined) {
     sets.push('category = ?');
     params.push(input.category);
+  }
+  if (input.cover !== undefined) {
+    sets.push('cover = ?');
+    params.push(input.cover);
   }
   if (input.status !== undefined) {
     sets.push('status = ?');

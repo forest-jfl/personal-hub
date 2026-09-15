@@ -39,6 +39,8 @@ services:
       # 容器内通过服务名连数据库
       DB_HOST: db
       DB_PORT: 3306
+      # 固定时区：默认 UTC 会让「每日 08:30 抓取」偏移 8 小时，日志时间也会与本地不符
+      TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:3000:3000"
     volumes:

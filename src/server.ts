@@ -7,6 +7,7 @@ import { logger } from './utils/logger';
 import { testConnection } from './db/connection';
 import { runMigrations } from './db/migrate';
 import { attachRemoteWs } from './ws/remote-ws';
+import { startFeedScheduler, stopFeedScheduler } from './services/daily-feed/scheduler';
 
 async function main() {
   // 1) 校验数据库连通性
@@ -28,12 +29,15 @@ async function main() {
   const server = http.createServer(app);
   // 5) 挂载远程控制 WebSocket 通道（复用同一端口；Caddy 原生透传 WS 升级）
   attachRemoteWs(server);
+  // 6) 启动每日内容抓取调度器（FEED_ENABLED=false 时不启动）
+  startFeedScheduler();
   server.listen(config.port, config.host, () => {
-    logger.info(`Personal Hub 已启动: http://${config.host}:${config.port} (env=${config.env})`);
+    logger.info(`半山日志 已启动: http://${config.host}:${config.port} (env=${config.env})`);
   });
 
   const shutdown = () => {
     logger.info('正在关闭...');
+    stopFeedScheduler();
     server.close(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);

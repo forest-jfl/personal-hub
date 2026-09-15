@@ -8,7 +8,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:css": "node scripts/check-css-coverage.mjs",
+    "check:cover": "ts-node scripts/check-cover-rule.ts",
+    "preview:mock": "node scripts/preview-mock.mjs",
+    "feed:daily": "ts-node src/services/daily-feed/cli.ts",
+    "feed:daily:prod": "node dist/services/daily-feed/cli.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

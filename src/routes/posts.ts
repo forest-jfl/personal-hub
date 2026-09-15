@@ -5,6 +5,7 @@ import { validateBody } from '../middleware/validate';
 import { HttpError } from '../middleware/error';
 import * as posts from '../repositories/post.repo';
 import { Post } from '../models/types';
+import { isValidCover } from '../utils/cover';
 
 const router = Router();
 router.use(requireAuth);
@@ -17,10 +18,21 @@ function slugify(title: string): string {
   return base || 'post';
 }
 
+/**
+ * 封面地址：先 trim 再交给 isValidCover 判定（规则只有一份，见 utils/cover.ts）。
+ * 校验不通过直接 400 INVALID_COVER —— 不静默丢弃，否则作者会以为封面设上了。
+ */
+const coverSchema = z
+  .string()
+  .trim()
+  .max(512)
+  .refine(isValidCover, { message: 'INVALID_COVER' });
+
 const createSchema = z.object({
   title: z.string().min(1).max(255),
   content: z.string().max(100000).default(''),
   category: z.string().max(64).default(''),
+  cover: coverSchema.default(''),
   status: z.enum(['draft', 'published']).default('draft'),
   slug: z.string().max(255).optional(),
 });
@@ -38,7 +50,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', validateBody(createSchema), async (req, res, next) => {
   try {
-    const { title, content, category, status, slug } = req.body;
+    const { title, content, category, cover, status, slug } = req.body;
     const base = slug || slugify(title);
     let candidate = base;
     let n = 1;
@@ -49,6 +61,7 @@ router.post('/', validateBody(createSchema), async (req, res, next) => {
       title,
       content,
       category,
+      cover,
       status,
       slug: candidate,
       author_id: req.session!.userId!,

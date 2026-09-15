@@ -44,6 +44,29 @@ export async function listFiles(ownerId?: number): Promise<FileMeta[]> {
   return rows as FileMeta[];
 }
 
+/**
+ * 图片列表（仅本人、按上传时间倒序、分页）。
+ *
+ * 按 mime 前缀过滤而不是扩展名：扩展名是客户端给的，可伪造；
+ * mime 是 multer 依据同一份请求填的，两者都不算可信，但至少与
+ * public.ts 里「能否内联展示」的判定用的是同一个字段，口径一致。
+ */
+export async function listImages(
+  ownerId: number,
+  opts: { limit: number; offset: number }
+): Promise<{ items: FileMeta[]; total: number }> {
+  const [countRows] = await pool.query(
+    "SELECT COUNT(*) AS total FROM files WHERE owner_id = ? AND mime LIKE 'image/%'",
+    [ownerId]
+  );
+  const total = Number((countRows as Array<{ total: number }>)[0]?.total ?? 0);
+  const [rows] = await pool.query(
+    "SELECT * FROM files WHERE owner_id = ? AND mime LIKE 'image/%' ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    [ownerId, opts.limit, opts.offset]
+  );
+  return { items: rows as FileMeta[], total };
+}
+
 export async function deleteFile(id: number): Promise<void> {
   await pool.query('DELETE FROM files WHERE id = ?', [id]);
 }
