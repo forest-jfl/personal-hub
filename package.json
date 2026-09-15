@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "check:css": "node scripts/check-css-coverage.mjs",
     "check:cover": "ts-node scripts/check-cover-rule.ts",
+    "check:assets": "ts-node scripts/check-asset-version.ts",
     "preview:mock": "node scripts/preview-mock.mjs",
     "feed:daily": "ts-node src/services/daily-feed/cli.ts",
     "feed:daily:prod": "node dist/services/daily-feed/cli.js"
