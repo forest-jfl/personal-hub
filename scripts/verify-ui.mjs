@@ -15,13 +15,22 @@
  *   node scripts/verify-ui.mjs
  *   TARGET_URL=https://blog.example.com node scripts/verify-ui.mjs   # 验线上那一份
  *
- * 退出码：0 全部通过 / 1 有断言失败 / 3 环境缺浏览器。
+ * 退出码：0 全部通过 / 1 有断言失败 / 3 环境问题（缺浏览器，或线上模式取不到接口）。
  */
 import { spawn } from 'node:child_process';
+import dns from 'node:dns';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/* 线上模式要用 node 的 fetch 去取真实 slug 做自适应 fixture。
+   坑：本机到 Cloudflare 的 IPv6 时通时不通（同一时刻 curl 走 IPv4 正常），
+   而 node 20+ 默认优先 AAAA，于是 fetch 直接抛 `fetch failed` ——
+   「curl 能通、脚本不能通」会把人误导到脚本逻辑上去。
+   固定 ipv4first，与浏览器和 curl 的选路保持一致。
+   但要注意：即便这样，取不到列表也**不能**当「线上无文章」放过去（见下方 ONLINE 分支）。 */
+dns.setDefaultResultOrder('ipv4first');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = (process.env.TARGET_URL || 'http://127.0.0.1:3210/').replace(/\/$/, '');
@@ -199,6 +208,12 @@ async function waitFor(expr, label, timeout = 8000) {
 
 /* ── 断言 ───────────────────────────────────────────────────────────────── */
 const results = [];
+/* 被跳过的页面/区块要显式记账。
+   否则「跳过」与「通过」在输出里长得一样：少跑十几条断言，末尾照样「全部通过」。
+   线上模式曾经因此谎报全绿（取列表失败 → 丢了整页 12 条）。 */
+const skipped = [];
+/* 线上接口不可达 → 本次验收本身不成立，不能报通过（见 ONLINE 分支）。 */
+let unreachable = false;
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`${ok ? '✓' : '✗'} ${name}${detail ? '   ' + detail : ''}`);
@@ -326,12 +341,19 @@ if (ONLINE) {
       console.log(`线上模式：文章页改用线上真实 slug「${slug}」`);
     } else if (pp) {
       PAGES.splice(PAGES.indexOf(pp), 1);
+      skipped.push('文章详情（线上无已发布文章）');
       console.log('线上模式：线上无已发布文章，跳过文章页');
     }
   } catch (e) {
-    console.log(`线上模式：取文章列表失败（${e.message}），跳过文章页`);
+    /* 取不到列表 ≠ 线上没文章。这是**环境问题**：验收跑不完整，
+       而「跑不完整」不能算通过 —— 曾经的写法会照常打印「全部通过」。 */
     const i = PAGES.findIndex((x) => x.name === '文章详情');
     if (i >= 0) PAGES.splice(i, 1);
+    console.error(`\n⚠ 线上模式：取文章列表失败（${e.message}）`);
+    console.error('  这表示本次线上验收**不完整**（文章页断言未执行），结论无效。');
+    console.error('  先确认本机能否访问该接口；若 curl 通而此脚本不通，多为 IPv6 选路问题');
+    console.error('  （脚本已固定 ipv4first，仍失败则查代理/VPN）。');
+    unreachable = true;
   }
 }
 
@@ -497,13 +519,78 @@ if (!ONLINE) {
     `可见=[${visible.map((v) => v.id).join(',')}] / 共 ${hiddenState.length}`);
 }
 
-/* ── 图片专项（本地）：首屏 / 封面 / 正文灯箱 / 图片库 ─────────────────────
+/* ── 首屏（本地与线上都跑）───────────────────────────────────────────────
+   首屏是唯一「静态 HTML 里只有占位符、真实内容全靠脚本」的区块：
+   时钟没跑起来就永远停在 --:--:--。这几条不需要 fixture、也不需要登录态，
+   因此不能跟着图片专项一起只跑本地 —— 否则首屏改动的验收只在本地成立。
+   （曾经就是如此：整段被 isLocal 门控，线上「全绿」其实少了这几项。） */
+console.log('\n── 首屏 ──────────────────────────────');
+await send('Page.navigate', { url: BASE + '/' });
+await waitFor(`!!document.querySelector('.hero .hero-title-cn')`, '首屏就绪');
+/* 站名与简介写在静态 HTML 里，DOMContentLoaded 之前就命中；
+   而时钟与顶部导航（编号、品牌块）都是脚本渲染的产物。
+   只等前者就动手读，就是抢跑：本地 localhost 侥幸不炸，线上经 Cloudflare
+   时 clockTime 还是占位符 --:--:--、.brand-mark 尚未建出 —— 断言会红成
+   「线上时钟坏了」，而实际代码没问题。等脚本的产物真的出现再断言。 */
+await waitFor(`/^\\d{2}:\\d{2}:\\d{2}$/.test((document.getElementById('clockTime') || {}).textContent || '')`,
+  '首屏时钟走字');
+await waitFor(`!!document.querySelector('.brand-mark')`, '顶部导航渲染');
+check('首页：首屏渲染出中文站名',
+  await evaluate(`document.querySelector('.hero .hero-title-cn').textContent.trim().length > 0`), '');
+// 静态 HTML 里时钟是占位符 --:--:--，只有脚本真的跑起来才会变成时间
+const clock = await evaluate(`document.getElementById('clockTime').textContent.trim()`);
+check('首页：北京时间时钟已在走动', /^\d{2}:\d{2}:\d{2}$/.test(clock), `clock=${clock}`);
+/* 首屏已精简：眉标行与引言轮换都去掉了。
+   断言「不存在」而不只是「不报错」—— 删元素时最典型的残留是
+   CSS 留下孤儿规则、或某个引用点没删干净导致 undefined，两者都不报错。 */
+check('首页：首屏无眉标行 / 无引言',
+  await evaluate(`(() => {
+    const gone = !document.querySelector('.hero-eyebrow, .hero-dot, .hero-panel, .hero-quote');
+    const txt = document.querySelector('.hero').textContent;
+    return gone && !/数据工程|全栈开发|自建服务/.test(txt) && !/把不确定性关在/.test(txt); })()`),
+  '');
+/* 时钟的新位置：与站名同排、位于其右侧。
+   只查「元素存在」是查不出位置错误的 —— 移回简介上方同样存在、同样在走字。 */
+const clockPos = await evaluate(`(() => {
+  const title = document.querySelector('.hero .hero-title').getBoundingClientRect();
+  const box = document.querySelector('.hero-clock').getBoundingClientRect();
+  const head = document.querySelector('.hero-head').getBoundingClientRect();
+  return { toRight: box.left >= title.right - 1,
+    sameRow: box.top < title.bottom - 1 && box.bottom > title.top + 1,
+    inside: box.right <= head.right + 1 && box.left >= head.left - 1 }; })()`);
+check('首页：时钟与站名同排且位于其右侧',
+  clockPos.toRight && clockPos.sameRow && clockPos.inside,
+  `right=${clockPos.toRight} row=${clockPos.sameRow} in=${clockPos.inside}`);
+
+/* 简介换行后的「孤字」：末行只剩一两个字是中文排版里一眼可见的瑕疵，
+   成因却很隐蔽 —— 这句简介约 34 个全角字，正好卡在自己的 max-width 上，
+   改字号、调窄首屏都会重新触发，而构造性检查（元素在不在）永远查不出来。
+   按行取宽度：Range.getClientRects() 每个行盒一个矩形，末行不足 2 字判为孤字。 */
+const leadWrap = await evaluate(`(() => {
+  const lead = document.querySelector('.hero-lead');
+  const r = document.createRange();
+  r.selectNodeContents(lead);
+  const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+  if (!rects.length) return { lines: 0, last: 0, charW: 0 };
+  return { lines: rects.length, last: rects[rects.length - 1].width,
+    charW: parseFloat(getComputedStyle(lead).fontSize) }; })()`);
+check('首页：简介未出现孤字换行',
+  leadWrap.lines > 0 && leadWrap.last >= leadWrap.charW * 2,
+  `${leadWrap.lines} 行 · 末行 ${Math.round(leadWrap.last)}px（一字约 ${Math.round(leadWrap.charW)}px）`);
+check('首页：导航链接带编号',
+  await evaluate(`(() => { const a = document.querySelector('.nav-links a');
+    return !!a && /^0\\d/.test(a.textContent.trim()); })()`), '');
+check('首页：站名标记为「半」字块',
+  await evaluate(`(() => { const m = document.querySelector('.brand-mark');
+    return !!m && m.textContent.includes('半'); })()`), '');
+
+/* ── 图片专项（本地）：封面 / 正文灯箱 / 图片库 ───────────────────────────
    这一组验的是「点击之后到底发生了什么」，而构建门禁与 curl 一律看不见：
    封面没渲染出来只是少一个 img；灯箱关不掉会把读者困在弹层里；
    复制按钮点了没反应则表现为「我明明复制了」而链接没进剪贴板。
    线上模式跳过 —— 图片库需要登录态，且验收脚本不该在线上做交互。 */
 if (!ONLINE) {
-  console.log('\n── 图片专项：首屏 / 封面 / 灯箱 / 图片库 ──────────');
+  console.log('\n── 图片专项：封面 / 灯箱 / 图片库 ──────────');
   await evaluate(`document.cookie = 'mock_auth=1; path=/'`);
 
   /* 用真实鼠标点元素中心。不用 el.click()：合成事件绕过命中测试，
@@ -536,59 +623,7 @@ if (!ONLINE) {
     return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0;
   })()`);
 
-  /* ① 首页首屏与导航 */
-  await send('Page.navigate', { url: BASE + '/' });
-  await waitFor(`!!document.querySelector('.hero .hero-title-cn')`, '首屏就绪');
-  check('首页：首屏渲染出中文站名',
-    await evaluate(`document.querySelector('.hero .hero-title-cn').textContent.trim().length > 0`), '');
-  // 静态 HTML 里时钟是占位符 --:--:--，只有脚本真的跑起来才会变成时间
-  const clock = await evaluate(`document.getElementById('clockTime').textContent.trim()`);
-  check('首页：北京时间时钟已在走动', /^\d{2}:\d{2}:\d{2}$/.test(clock), `clock=${clock}`);
-  /* 首屏已精简：眉标行与引言轮换都去掉了。
-     断言「不存在」而不只是「不报错」—— 删元素时最典型的残留是
-     CSS 留下孤儿规则、或某个引用点没删干净导致 undefined，两者都不报错。 */
-  check('首页：首屏无眉标行 / 无引言',
-    await evaluate(`(() => {
-      const gone = !document.querySelector('.hero-eyebrow, .hero-dot, .hero-panel, .hero-quote');
-      const txt = document.querySelector('.hero').textContent;
-      return gone && !/数据工程|全栈开发|自建服务/.test(txt) && !/把不确定性关在/.test(txt); })()`),
-    '');
-  /* 时钟的新位置：与站名同排、位于其右侧。
-     只查「元素存在」是查不出位置错误的 —— 移回简介上方同样存在、同样在走字。 */
-  const clockPos = await evaluate(`(() => {
-    const title = document.querySelector('.hero .hero-title').getBoundingClientRect();
-    const box = document.querySelector('.hero-clock').getBoundingClientRect();
-    const head = document.querySelector('.hero-head').getBoundingClientRect();
-    return { toRight: box.left >= title.right - 1,
-      sameRow: box.top < title.bottom - 1 && box.bottom > title.top + 1,
-      inside: box.right <= head.right + 1 && box.left >= head.left - 1 }; })()`);
-  check('首页：时钟与站名同排且位于其右侧',
-    clockPos.toRight && clockPos.sameRow && clockPos.inside,
-    `right=${clockPos.toRight} row=${clockPos.sameRow} in=${clockPos.inside}`);
-
-  /* 简介换行后的「孤字」：末行只剩一两个字是中文排版里一眼可见的瑕疵，
-     成因却很隐蔽 —— 这句简介约 34 个全角字，正好卡在自己的 max-width 上，
-     改字号、调窄首屏都会重新触发，而构造性检查（元素在不在）永远查不出来。
-     按行取宽度：Range.getClientRects() 每个行盒一个矩形，末行不足 2 字判为孤字。 */
-  const leadWrap = await evaluate(`(() => {
-    const lead = document.querySelector('.hero-lead');
-    const r = document.createRange();
-    r.selectNodeContents(lead);
-    const rects = [...r.getClientRects()].filter((x) => x.width > 0);
-    if (!rects.length) return { lines: 0, last: 0, charW: 0 };
-    return { lines: rects.length, last: rects[rects.length - 1].width,
-      charW: parseFloat(getComputedStyle(lead).fontSize) }; })()`);
-  check('首页：简介未出现孤字换行',
-    leadWrap.lines > 0 && leadWrap.last >= leadWrap.charW * 2,
-    `${leadWrap.lines} 行 · 末行 ${Math.round(leadWrap.last)}px（一字约 ${Math.round(leadWrap.charW)}px）`);
-  check('首页：导航链接带编号',
-    await evaluate(`(() => { const a = document.querySelector('.nav-links a');
-      return !!a && /^0\\d/.test(a.textContent.trim()); })()`), '');
-  check('首页：站名标记为「半」字块',
-    await evaluate(`(() => { const m = document.querySelector('.brand-mark');
-      return !!m && m.textContent.includes('半'); })()`), '');
-
-  /* ② 列表卡片封面：有封面的走「缩略图 + 文字」，且图真的能取到 */
+  /* ① 列表卡片封面：有封面的走「缩略图 + 文字」，且图真的能取到 */
   // 卡片是 JS 拉完 /api/public/posts 才渲染的，静态 HTML 里一个都没有。
   // 不等它就会出现这种假失败：同一份代码，一次测到 3 张、一次测到 0 张。
   await waitFor(`document.querySelectorAll('.post-card').length > 0`, '首页文章卡片就绪');
@@ -673,11 +708,16 @@ if (localServer) await new Promise((r) => localServer.close(r));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${'='.repeat(60)}`);
 console.log(`通过 ${results.length - failed.length}/${results.length}`);
+if (skipped.length) console.log(`⚠ 已跳过：${skipped.join('、')}（这几页的断言未执行，不计入通过数）`);
 console.log(`截图目录：${SHOTS}`);
 if (failed.length) {
   console.error('\n失败项：');
   for (const f of failed) console.error(`  ✗ ${f.name}  ${f.detail}`);
   process.exit(1);
+}
+if (unreachable) {
+  console.error('\n⚠ 线上接口不可达：本次验收不完整，**不能视为通过**。');
+  process.exit(3);
 }
 if (!isLocal) console.log('（线上模式：以上为生产环境的真实渲染结果）');
 console.log('全部通过。');
