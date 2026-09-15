@@ -6,6 +6,7 @@ import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { computeAssetVersion, injectAssetVersion } from './utils/asset-version';
+import { trustProxyHop } from './utils/client-ip';
 import healthRouter from './routes/health';
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
@@ -27,8 +28,11 @@ const PAGE_FILES = ['index.html', 'post.html', 'editor.html', 'login.html', 'con
 export function createApp(): Express {
   const app = express();
 
-  // 置于 Nginx 之后，信任第一跳代理以正确获取客户端 IP
-  app.set('trust proxy', 1);
+  // 链路是「访客 → Cloudflare → Caddy → app」。跳数不能写死：
+  // 数字跳数只约束位置、不约束来源，绕过 CF 直连源站时 XFF 末项可被伪造。
+  // 谓词同时校验「第 0 跳是 Caddy（私有网段）+ 第 1 跳是 CF 边缘（官方网段）」，
+  // 详见 src/utils/client-ip.ts。
+  app.set('trust proxy', trustProxyHop);
   app.use(express.json({ limit: '5mb' }));
   app.use(express.urlencoded({ extended: true }));
 
@@ -79,6 +83,19 @@ export function createApp(): Express {
       },
     })
   );
+
+  // ===== 临时诊断端点（验证真实客户端 IP 后就地删除，不留生产）=====
+  app.get('/api/__ipdiag', (req, res) => {
+    res.json({
+      socket: req.socket.remoteAddress,
+      xff: req.headers['x-forwarded-for'] || '',
+      xRealIp: req.headers['x-real-ip'] || '',
+      cfConnecting: req.headers['cf-connecting-ip'] || '',
+      cfRay: req.headers['cf-ray'] ? 'present' : '',
+      reqIp: req.ip,
+      ips: req.ips,
+    });
+  });
 
   // API 路由
   app.use('/health', healthRouter);

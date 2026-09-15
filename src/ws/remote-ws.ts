@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import { consumeTicket } from '../services/remote/tickets';
 import { dispatchCommand, sanitizeCommandInput } from '../services/remote/service';
 import { listCommands } from '../services/remote/registry';
+import { resolveClientIp } from '../utils/client-ip';
 
 const WS_PATH = '/ws/remote';
 
@@ -78,10 +79,12 @@ export function attachRemoteWs(server: Server): void {
     if (!entry) return reject(socket, 401, 'INVALID_TICKET');
 
     wss.handleUpgrade(req, socket, head, (ws) => {
+      // WS 握手在 Express 之外，没有 req.ip；用与 HTTP 侧同一套跳数规则复算
       const ip =
-        (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ||
-        req.socket.remoteAddress ||
-        'unknown';
+        resolveClientIp(
+          req.headers['x-forwarded-for'] as string | undefined,
+          req.socket.remoteAddress
+        ) || 'unknown';
       states.set(ws, {
         userId: entry.userId,
         username: entry.username,

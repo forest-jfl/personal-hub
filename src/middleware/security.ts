@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { clientIp } from '../utils/client-ip';
 
 const STATE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
@@ -51,7 +52,7 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
 
 export function rateLimit(opts: { windowMs: number; max: number; name: string }) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req) || 'unknown';
     const key = `${opts.name}:${ip}`;
     const now = Date.now();
     const bucket = buckets.get(key);

@@ -14,6 +14,7 @@ import {
 import { requireAuth } from '../middleware/auth';
 import { HttpError } from '../middleware/error';
 import { config } from '../config';
+import { clientIp } from '../utils/client-ip';
 import { logger } from '../utils/logger';
 import { notifyLoginSuccess, notifyLoginFailure } from '../services/login-notify';
 
@@ -81,7 +82,7 @@ router.post(
       const { username, password, display_name } = req.body;
       if (await findByUsername(username)) throw new HttpError(409, 'USERNAME_EXISTS');
       // 同 IP 账号数限制（管理员创建的账号 register_ip 为空不计入）
-      const ip = req.ip || req.socket.remoteAddress || '';
+      const ip = clientIp(req);
       const registered = await countByRegisterIp(ip);
       if (registered >= config.auth.maxAccountsPerIp) {
         throw new HttpError(403, 'IP_ACCOUNT_LIMIT');

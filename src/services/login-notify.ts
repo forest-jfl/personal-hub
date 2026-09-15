@@ -2,6 +2,7 @@ import type { Request } from 'express';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { pushMessage } from './notify';
+import { clientIp } from '../utils/client-ip';
 
 /**
  * 登录事件通知（登录成功 / 登录失败 → 推送给管理员）。
@@ -44,10 +45,6 @@ function shouldNotifyUser(username: string): boolean {
   return list.length === 0 || list.includes(username);
 }
 
-function clientIp(req: Request): string {
-  return req.ip || req.socket.remoteAddress || '未知';
-}
-
 function clientUa(req: Request): string {
   const ua = req.headers['user-agent'] || '';
   return ua.length > 120 ? ua.slice(0, 120) + '…' : ua || '未知';
@@ -61,7 +58,7 @@ export function notifyLoginSuccess(req: Request, user: { username: string; displ
     title: '🟢 登录成功提醒',
     text:
       `**账号**：${name}\n` +
-      `**来源 IP**：${clientIp(req)}\n` +
+      `**来源 IP**：${clientIp(req) || '未知'}\n` +
       `**设备/浏览器**：${clientUa(req)}\n` +
       `**时间**：${nowStr()}`,
   }).catch(() => {/* pushMessage 内部已记日志，此处兜底防止未处理拒绝 */});
@@ -71,7 +68,7 @@ export function notifyLoginSuccess(req: Request, user: { username: string; displ
 export function notifyLoginFailure(req: Request, username: string, reason: string): void {
   if (!config.notify.enabled || !shouldNotifyUser(username)) return;
 
-  const ip = clientIp(req);
+  const ip = clientIp(req) || '未知';
   const key = `${ip}|${username}`;
   const now = Date.now();
   const prev = failureMap.get(key);

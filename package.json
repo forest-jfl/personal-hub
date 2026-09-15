@@ -12,6 +12,7 @@
     "check:css": "node scripts/check-css-coverage.mjs",
     "check:cover": "ts-node scripts/check-cover-rule.ts",
     "check:assets": "ts-node scripts/check-asset-version.ts",
+    "check:client-ip": "ts-node scripts/check-client-ip.ts",
     "preview:mock": "node scripts/preview-mock.mjs",
     "feed:daily": "ts-node src/services/daily-feed/cli.ts",
     "feed:daily:prod": "node dist/services/daily-feed/cli.js"

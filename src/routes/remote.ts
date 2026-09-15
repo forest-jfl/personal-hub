@@ -6,6 +6,7 @@ import { listCommands } from '../services/remote/registry';
 import { config } from '../config';
 import { pool } from '../db/connection';
 import { findById } from '../repositories/user.repo';
+import { clientIp } from '../utils/client-ip';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.post(
       if (!userId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
       const user = await findById(userId);
       if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
-      const ip = req.ip || req.socket.remoteAddress || 'unknown';
+      const ip = clientIp(req) || 'unknown';
       const ticket = issueTicket(user.id, user.username, ip);
       res.json({ ticket, ttl: config.remote.ticketTtlSec, ws_path: '/ws/remote' });
     } catch (e) {
