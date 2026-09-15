@@ -311,7 +311,9 @@ TARGET_URL=https://blog.jiangfulin.com node scripts/verify-feed-ui.mjs
 
 ```bash
 npm run check:css                 # 1) 类名覆盖率对账（秒级，零依赖）
-node scripts/verify-ui.mjs        # 2) 浏览器级视觉与脱敏验收（自带静态服务）
+npm run check:cover               # 2) 封面地址规则（14 项：该放行/该拒绝）
+npm run check:assets              # 3) 资源版本注入（14 项：注入/幂等/不误伤）
+node scripts/verify-ui.mjs        # 4) 浏览器级视觉与脱敏验收（自带静态服务）
 TARGET_URL=https://blog.jiangfulin.com node scripts/verify-ui.mjs   # 只读验线上
 ```
 
@@ -324,7 +326,8 @@ TARGET_URL=https://blog.jiangfulin.com node scripts/verify-ui.mjs   # 只读验�
 HTML 内联样式里有没有写死浅色。它还能与 `git show HEAD:public/assets/style.css` 对比出
 「旧有新无」的类名差集 —— 0 个才说明重写没丢规则。
 
-`verify-ui.mjs` 覆盖 64 项断言，用本机 Chrome 走 DevTools 协议（零额外依赖）：
+`verify-ui.mjs` 覆盖 95 项断言（指向线上时自动降级为 40 项：公开页跑完整检查，
+需登录页只断言「被正确拦到 `/login`」），用本机 Chrome 走 DevTools 协议（零额外依赖）：
 
 - **暗色真的生效**：body 亮度、正文对比度 ≥ 4.5、`color-scheme: dark`
 - **逐元素文本对比度**：抓「暗底暗字 / 亮底亮字」。整体 body 对比度再健康也盖不住局部的
@@ -344,6 +347,34 @@ HTML 内联样式里有没有写死浅色。它还能与 `git show HEAD:public/a
 `.post-html table td { background:#fff; color:#f2f2f2 }`，跑 `verify-ui.mjs` 必须**失败**
 并打印出 `td[1.12] fg=rgb(242,242,242) bg=rgb(255,255,255)`；还原后必须重新全绿。
 注意反例要选对形态 —— `#333` 在白底上是**高**对比，用它会得出「对比度门禁不生效」的错误结论。
+
+---
+
+## 6.9 静态资源缓存与版本指纹（改 JS/CSS 后必读）
+
+**症状**：部署新版本后页面报 `HUB.xxx is not a function`。
+
+**根因（2026-09-15 实测）**：站点前面有两层缓存，其中 **Cloudflare 的 Browser Cache TTL
+（默认 4 小时）会按静态扩展名把 `.js` / `.css` / `.woff2` 的 `max-age` 重写成 `14400`，
+源站发什么都不管用**；而 HTML 不被 CF 缓存（`cf-cache-status: DYNAMIC`）所以立刻就是新的。
+两者叠加即「新 HTML 调用新 API + JS 还卡在旧缓存」——
+本地验证、构建门禁、`curl` 首页 200 全都正常，只有处在缓存命中窗口内的真浏览器才炸。
+
+**修法**：把内容指纹拼进资源 URL。**URL 一变，浏览器 / CF / 任何中间层都必然回源** ——
+这是唯一不依赖对方配置的确定性手段（调 `max-age` 没用，CF 会重写）。
+
+- `src/utils/asset-version.ts`：`computeAssetVersion()` 由 `assets/` 全量文件 +
+  `config.js`/`favicon.svg` 的 **mtime+size** 推导指纹，容器重建即变化 ⇒
+  **不需要任何人记得手工 bump 版本号**（手工版本号一定会被忘掉）
+- `injectAssetVersion()` 幂等（已带 query 的不二次拼接），且只认「属性值开头」的路径，
+  不误伤外部 CDN 的 `/assets/...`
+- `app.ts` 用 `sendPage()` 统一注入；**直连 `*.html` 也走注入**（否则 `express.static`
+  会吐出未注入的原件，形成一条绕过路径）；静态资源响应头统一 `no-cache`
+
+**改 JS/CSS 后要做什么**：什么都不用做 —— 指纹自动变。但**不要手工往 HTML 里写 `?v=常量`**，
+那会退化回「手工 bump」，且与门禁冲突。
+
+**门禁**：`npm run check:assets`（14 项：6 种注入形态 + 幂等 + 图床/字体/外部 CDN 三种不误伤）。
 
 **已知残留（本轮无法通过改站点消除）**：
 
