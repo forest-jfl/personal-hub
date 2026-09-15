@@ -22,16 +22,12 @@
        占满一屏会把内容全推到折叠线以下，代价大于观感收益。 -->
   <section class="hero" id="hero">
     <div class="hero-inner">
-      <p class="hero-eyebrow">
-        <span class="hero-dot" aria-hidden="true"></span>
-        数据工程 / 全栈开发 / 自建服务
-      </p>
-      <h1 class="hero-title">
-        <span class="hero-title-cn">半山日志</span>
-        <span class="hero-title-en" aria-hidden="true">Banshan Log</span>
-      </h1>
-      <p class="hero-lead">把零散、脏乱的数据整理成能支撑判断的东西，顺手把踩过的坑记下来。</p>
-      <div class="hero-panel">
+      <div class="hero-head">
+        <h1 class="hero-title">
+          <span class="hero-title-cn">半山日志</span>
+          <span class="hero-title-en" aria-hidden="true">Banshan Log</span>
+        </h1>
+        <!-- 时钟与站名同排、贴右：首屏只留站名与一句简介，时间不额外占用高度 -->
         <div class="hero-clock">
           <span class="clock-time" id="clockTime">--:--:--</span>
           <span class="clock-meta">
@@ -40,9 +36,8 @@
             <span>UTC+8</span>
           </span>
         </div>
-        <!-- 引言的首条写死在 HTML 里：脚本没跑起来时它仍是一句完整的话 -->
-        <p class="hero-quote" id="heroQuote">先把口径定下来，再谈结论。</p>
       </div>
+      <p class="hero-lead">把零散、脏乱的数据整理成能支撑判断的东西，顺手把踩过的坑记下来。</p>
     </div>
   </section>
 

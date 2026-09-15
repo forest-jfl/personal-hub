@@ -326,7 +326,7 @@ TARGET_URL=https://blog.jiangfulin.com node scripts/verify-ui.mjs   # 只读验�
 HTML 内联样式里有没有写死浅色。它还能与 `git show HEAD:public/assets/style.css` 对比出
 「旧有新无」的类名差集 —— 0 个才说明重写没丢规则。
 
-`verify-ui.mjs` 覆盖 95 项断言（指向线上时自动降级为 40 项：公开页跑完整检查，
+`verify-ui.mjs` 覆盖 97 项断言（指向线上时自动降级为 42 项：公开页跑完整检查，
 需登录页只断言「被正确拦到 `/login`」），用本机 Chrome 走 DevTools 协议（零额外依赖）：
 
 - **暗色真的生效**：body 亮度、正文对比度 ≥ 4.5、`color-scheme: dark`
@@ -338,7 +338,7 @@ HTML 内联样式里有没有写死浅色。它还能与 `git show HEAD:public/a
 - **`.hidden` 专项**：控制台六个面板中**恰好**一个可见，且默认为文章管理
   （只查那几个带 `.hidden` 的，会退化成「零个可见也通过」的空断言）
 - **三层脱敏**：运行时文本 / DOM 属性 / 响应 HTML 均无身份标识与领域词
-- 每页截图留档到 `docs/screenshots/`
+- 每页截图留档到 `docs/screenshots/`（**本地产物，不入库** —— 内容每跑一次就变，已在 `.gitignore`）
 
 退出码 0 通过 / 1 断言失败 / 3 环境缺浏览器。**依赖本机浏览器，故不接入 CI** ——
 进了 CI 只会在没有 Chrome 的机器上静默跳过，等于没有门禁。

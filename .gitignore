@@ -18,5 +18,9 @@ uploads/
 .cookies.txt
 .probe.xml
 
+# 验收截图：每跑一次 verify-ui.mjs 内容就变，属本地产物，不入库
+# （README 里说的「每页截图留档」= 留在这台机器上，不是留进版本库）
+docs/screenshots/
+
 # Windows 系统缓存误生成目录
 %SystemDrive%/

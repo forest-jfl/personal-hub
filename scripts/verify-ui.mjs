@@ -544,6 +544,43 @@ if (!ONLINE) {
   // 静态 HTML 里时钟是占位符 --:--:--，只有脚本真的跑起来才会变成时间
   const clock = await evaluate(`document.getElementById('clockTime').textContent.trim()`);
   check('首页：北京时间时钟已在走动', /^\d{2}:\d{2}:\d{2}$/.test(clock), `clock=${clock}`);
+  /* 首屏已精简：眉标行与引言轮换都去掉了。
+     断言「不存在」而不只是「不报错」—— 删元素时最典型的残留是
+     CSS 留下孤儿规则、或某个引用点没删干净导致 undefined，两者都不报错。 */
+  check('首页：首屏无眉标行 / 无引言',
+    await evaluate(`(() => {
+      const gone = !document.querySelector('.hero-eyebrow, .hero-dot, .hero-panel, .hero-quote');
+      const txt = document.querySelector('.hero').textContent;
+      return gone && !/数据工程|全栈开发|自建服务/.test(txt) && !/把不确定性关在/.test(txt); })()`),
+    '');
+  /* 时钟的新位置：与站名同排、位于其右侧。
+     只查「元素存在」是查不出位置错误的 —— 移回简介上方同样存在、同样在走字。 */
+  const clockPos = await evaluate(`(() => {
+    const title = document.querySelector('.hero .hero-title').getBoundingClientRect();
+    const box = document.querySelector('.hero-clock').getBoundingClientRect();
+    const head = document.querySelector('.hero-head').getBoundingClientRect();
+    return { toRight: box.left >= title.right - 1,
+      sameRow: box.top < title.bottom - 1 && box.bottom > title.top + 1,
+      inside: box.right <= head.right + 1 && box.left >= head.left - 1 }; })()`);
+  check('首页：时钟与站名同排且位于其右侧',
+    clockPos.toRight && clockPos.sameRow && clockPos.inside,
+    `right=${clockPos.toRight} row=${clockPos.sameRow} in=${clockPos.inside}`);
+
+  /* 简介换行后的「孤字」：末行只剩一两个字是中文排版里一眼可见的瑕疵，
+     成因却很隐蔽 —— 这句简介约 34 个全角字，正好卡在自己的 max-width 上，
+     改字号、调窄首屏都会重新触发，而构造性检查（元素在不在）永远查不出来。
+     按行取宽度：Range.getClientRects() 每个行盒一个矩形，末行不足 2 字判为孤字。 */
+  const leadWrap = await evaluate(`(() => {
+    const lead = document.querySelector('.hero-lead');
+    const r = document.createRange();
+    r.selectNodeContents(lead);
+    const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+    if (!rects.length) return { lines: 0, last: 0, charW: 0 };
+    return { lines: rects.length, last: rects[rects.length - 1].width,
+      charW: parseFloat(getComputedStyle(lead).fontSize) }; })()`);
+  check('首页：简介未出现孤字换行',
+    leadWrap.lines > 0 && leadWrap.last >= leadWrap.charW * 2,
+    `${leadWrap.lines} 行 · 末行 ${Math.round(leadWrap.last)}px（一字约 ${Math.round(leadWrap.charW)}px）`);
   check('首页：导航链接带编号',
     await evaluate(`(() => { const a = document.querySelector('.nav-links a');
       return !!a && /^0\\d/.test(a.textContent.trim()); })()`), '');
