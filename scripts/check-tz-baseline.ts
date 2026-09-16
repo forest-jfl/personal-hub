@@ -7,7 +7,7 @@
  * 于是 `posts.created_at` 一列里同时存在相差 8 小时的两类值。
  * 这类问题在本地开发环境**看不出来**：本机 MySQL 的时区就是 +08:00，怎么试都对。
  *
- * 所以把「改动时区时必须同时成立的八条约束」固化下来，纯文本分析即可验证：
+ * 所以把「改动时区时必须同时成立的十一条约束」固化下来，纯文本分析即可验证：
  *   ① compose 的 db 与 app 必须同设同一个 TZ，且为 Asia/Shanghai
  *      —— 两侧不一致 = 两条写入口径再次分裂，正是本次病根。
  *      （`feed.repo.ts` 的 `DATE_SUB(NOW(), INTERVAL ? DAY)` 去重窗口、
@@ -28,6 +28,16 @@
  *      Windows mysql CLI 默认 gbk 把中文字面量写坏）。
  *   ⑧ 回滚脚本必须镜像迁移的三分类（seed 清单 + `FIND_IN_SET` 判别），
  *      否则回滚会漏改控制台文章或误改 seed 展示日期。
+ *   ⑨ `src/` 不得用「进程本地时区」格式化时间 —— 禁止不带 `timeZone` 的 `toLocale*`、
+ *      禁止裸取 `getHours()/getDate()` 等分量。容器里 Node 认 `TZ`（ICU 自带时区库，
+ *      不需要 tzdata），所以当下结果恰好对 —— 但这把「TZ 没丢」变成了正确性的必要条件，
+ *      TZ 一旦丢失就静默偏 8 小时。展示一律走 `formatInTz(d, config.businessTz)`。
+ *   ⑩ 连接层必须显式声明「库内 DATETIME 是什么口径」（mysql2 的 `timezone`）。
+ *      驱动默认 `'local'` 同样是隐式依赖进程 TZ。
+ *   ⑪ 时区口径只有一个来源，且跨文件对账：`BUSINESS_TZ`（config）⇄ `DB_TZ_OFFSET`
+ *      （连接层）⇄ compose 的 `TZ`；`FEED_TZ` 必须回落到 `BUSINESS_TZ`，不得各写默认值。
+ *      另外 Dockerfile 必须装 tzdata —— 缺它时容器内 `date` 输出 UTC 而日志是北京时间，
+ *      两个时间基准并存，排查时极易把正常的 8 小时差误判成故障（本次就误判过一次）。
  *
  * 用法：npm run check:tz（ts-node，零新增依赖）
  * 退出码 0 通过 / 1 断言失败
@@ -280,6 +290,102 @@ for (const { file } of MIGRATIONS) {
     qualified ? qualified.join(' ') : ''
   );
 }
+
+/* ── ⑨⑩⑪ 展示层 / 连接层 / 镜像：不得隐式依赖进程本地时区 ───────────────── */
+
+console.log('\n── ⑨⑩⑪ 进程本地时区依赖与口径对账 ──────');
+
+/** 递归收集 src/ 下的 .ts 文件（posix 风格相对路径）。 */
+function collectSrc(dir = 'src'): string[] {
+  const out: string[] = [];
+  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) out.push(...collectSrc(rel));
+    else if (e.name.endsWith('.ts')) out.push(rel);
+  }
+  return out;
+}
+
+/**
+ * 剥离注释后再扫。注释里出现的反例（如 tz.ts 顶部写「不要用 new Date().getHours()」）
+ * 不该被判成违规 —— 门禁误报会训练人忽略它，比漏报更糟。
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
+    .replace(/(^|\s)\/\/[^\n]*/g, '$1');
+}
+
+const srcFiles = collectSrc();
+
+// ⑨-a 禁止不带 timeZone 的 toLocale* —— 它取进程本地时区。
+//     实测：容器内 TZ=Asia/Shanghai 时 Node 靠 ICU 认这个变量，结果恰好对；
+//     但 TZ 一旦丢失就静默偏 8 小时，而正确性不该押在环境变量上。
+const localeOffenders: string[] = [];
+for (const f of srcFiles) {
+  const code = stripComments(read(f));
+  for (const m of code.matchAll(/\.toLocale(?:String|DateString|TimeString)\s*\(([\s\S]{0,240}?)\)/g)) {
+    if (!/timeZone/.test(m[1])) localeOffenders.push(`${f} → .toLocale*(${m[1].trim().slice(0, 60)})`);
+  }
+}
+check(
+  'src/ 无不带 timeZone 的 toLocale* 调用（统一走 formatInTz）',
+  localeOffenders.length === 0,
+  localeOffenders.join(' | ')
+);
+
+// ⑨-b 禁止裸取进程本地的日期/时间分量
+const partOffenders: string[] = [];
+for (const f of srcFiles) {
+  const code = stripComments(read(f));
+  for (const m of code.matchAll(/\.(getHours|getMinutes|getSeconds|getDate|getMonth|getFullYear|getDay)\s*\(/g)) {
+    partOffenders.push(`${f} → ${m[0]}`);
+  }
+}
+check(
+  'src/ 无 getHours()/getDate() 等裸本地分量（改用 tz.ts 的 partsInTz/formatInTz）',
+  partOffenders.length === 0,
+  partOffenders.join(' | ')
+);
+
+// ⑩ 连接层必须显式声明「库内 DATETIME 是什么口径」，不交给驱动的 'local' 默认值
+const conn = read('src/db/connection.ts');
+check(
+  'src/db/connection.ts 显式设了 mysql2 的 timezone（不依赖驱动默认 local）',
+  /timezone:\s*config\.db\.timezoneOffset/.test(conn)
+);
+
+// ⑪ 时区口径的单一事实来源 + 跨文件对账
+const cfg = read('src/config/index.ts');
+check(
+  'config 有 businessTz 且默认 Asia/Shanghai',
+  /businessTz:\s*BUSINESS_TZ/.test(cfg) && /const BUSINESS_TZ = strOr\('BUSINESS_TZ', 'Asia\/Shanghai'\)/.test(cfg)
+);
+check(
+  'config.db.timezoneOffset 默认 +08:00',
+  /timezoneOffset:\s*strOr\('DB_TZ_OFFSET', '\+08:00'\)/.test(cfg)
+);
+// 两处各自写默认值就会分叉：FEED_TZ 必须回落到 BUSINESS_TZ
+check(
+  'FEED_TZ 回落到 BUSINESS_TZ（避免调度与展示两处默认值分叉）',
+  /tz:\s*strOr\('FEED_TZ', BUSINESS_TZ\)/.test(cfg)
+);
+const offsetHit = /timezoneOffset:\s*strOr\('DB_TZ_OFFSET', '([^']+)'\)/.exec(cfg);
+check(
+  '连接层偏移与 compose 的 TZ 同口径（Asia/Shanghai ≡ +08:00，中国无夏令时）',
+  offsetHit !== null && offsetHit[1] === '+08:00' && tzOf.db === 'Asia/Shanghai',
+  `offset=${offsetHit ? offsetHit[1] : '?'} composeTZ=${tzOf.db}`
+);
+check(
+  'tz.ts 导出 formatInTz（展示层统一入口）',
+  /export function formatInTz\(/.test(read('src/utils/tz.ts'))
+);
+// 镜像层：缺 tzdata 时 busybox 的 date 输出 UTC，而应用日志是北京时间 ——
+// 两个时间基准并存，排查时极易把正常的 8 小时差误判成故障。
+check(
+  'Dockerfile 装了 tzdata（让容器内 date 与日志同基准）',
+  /apk add --no-cache tzdata/.test(read('Dockerfile'))
+);
 
 /* ── 汇总 ───────────────────────────────────────────────────────────────── */
 

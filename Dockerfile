@@ -11,6 +11,12 @@ RUN npm run build
 FROM node:20-alpine
 ENV NODE_ENV=production
 WORKDIR /app
+# tzdata 不是给 Node 用的 —— Node 自带 ICU 时区库，认 TZ 环境变量、不需要它
+# （实测：无 tzdata 时容器内 new Date().getHours() 仍取到北京时间）。
+# 装它是为了 busybox 的 date 以及任何走 /usr/share/zoneinfo 的工具：
+# 缺了它容器里 `date` 输出 UTC，而应用日志是北京时间 —— 排查问题时两个时间
+# 基准并存，极易把正常的 8 小时差误判成故障。
+RUN apk add --no-cache tzdata
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist

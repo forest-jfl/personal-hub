@@ -294,13 +294,39 @@ docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" personal_hub \
 `sec_zero_rows`，即 seed 行的 `created_at` 秒位仍是 `00`、未被误迁移）；③ 各列迁移后的范围。
 另外 `mariadb:11` 镜像自带 tzdata，无需额外安装。
 
-**已知遗留**：`app` 容器基于 `node:20-alpine`，**镜像内没有 tzdata**，所以
-`TZ=Asia/Shanghai` 对它只是「设了但系统不认识」——容器内 `date` 仍输出 UTC。
-这不影响业务时间（`dbDateTimeInTz` 走 `Intl`/ICU，与系统时区无关），但三处依赖
-**进程本地时区**的地方仍按 UTC 输出：日志时间戳（`utils/logger.ts`）、
-登录告警里的时间（`services/login-notify.ts`）、远程命令留痕展示
-（`services/remote/registry.ts`）。要一并修就在 Dockerfile 加
-`RUN apk add --no-cache tzdata`。
+**进程时区不参与正确性（本轮加固）**
+
+「显示时间」这条链路上有一处极易被忽略的隐式前提。实测事实先摆出来：
+
+- `TZ` 环境变量对 **Node 进程**是生效的 —— Node 自带 ICU 时区库，**不需要 tzdata**。
+  无 tzdata 的 `node:20-alpine` 容器里，`new Date().getHours()` 依然返回北京时间
+  （`Intl.DateTimeFormat().resolvedOptions().timeZone` 就是 `Asia/Shanghai`）。
+- 缺 tzdata 只影响 **busybox 的 `date`**（以及任何读 `/usr/share/zoneinfo` 的工具）：
+  容器内 `date` 输出 UTC，而应用日志是北京时间。两个时间基准并存，排查时
+  极易把正常的 8 小时差误判成故障 —— 本次就误判过一次。
+
+所以「现在是对的」完全建立在「`TZ` 没丢」这个隐式前提上。把正确性押在一个环境变量上
+不划算，本轮加固的目标是**与进程时区彻底解耦**：
+
+| 层 | 约束 | 位置 |
+|---|---|---|
+| 展示 | 一律 `formatInTz(d, config.businessTz)`；禁用不带 `timeZone` 的 `toLocale*`、禁用裸 `getHours()/getDate()` | `src/utils/tz.ts` |
+| 连接 | mysql2 显式 `timezone: config.db.timezoneOffset`，不用驱动默认的 `'local'` | `src/db/connection.ts` |
+| 镜像 | 装 tzdata，让容器内 `date` 与日志同基准 | `Dockerfile` |
+
+口径只有一个来源：`BUSINESS_TZ`（默认 `Asia/Shanghai`）⇄ `DB_TZ_OFFSET`（默认 `+08:00`）
+⇄ compose 的 `TZ`；`FEED_TZ` 回落到 `BUSINESS_TZ`。`npm run check:tz` 逐条对账。
+
+**反例验证（改动前后实测对照）** —— 库内存北京墙上时间 `12:16:33`，正确还原为 `04:16:33Z`：
+
+| 进程 `TZ` | 驱动 `timezone` | 读出的绝对时刻 | 结论 |
+|---|---|---|---|
+| `UTC` | `'+08:00'`（改动后） | `2026-09-16T04:16:33Z` | ✓ |
+| `UTC` | 不设 = `local`（改动前） | `2026-09-16T12:16:33Z` | ✗ 偏 8 小时 |
+| `Asia/Shanghai` | 不设 = `local`（改动前） | `2026-09-16T04:16:33Z` | ✓ 恰好对 |
+
+展示层同理：`formatInTz` 在 `TZ=UTC` 下仍输出 `11:40:06`，而裸 `toLocaleString()`
+退化成 `03:40:06`。**改动前之所以没暴露，只是因为线上恰好设了 `TZ`。**
 
 ---
 

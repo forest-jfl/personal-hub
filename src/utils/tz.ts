@@ -55,6 +55,37 @@ export function todayInTz(tz: string, now: Date = new Date()): string {
 }
 
 /**
+ * 绝对时刻 → 目标时区的 `YYYY-MM-DD HH:MM:SS`。
+ *
+ * 为什么不用 `d.toLocaleString('zh-CN')`：它取**进程本地时区**，结果取决于 TZ 环境
+ * 变量。容器里 Node 认 TZ（ICU 自带时区库），所以当下恰好是对的 —— 但这把一个
+ * 隐式前提（TZ 没丢）变成了正确性的必要条件，TZ 一旦丢失就会静默偏 8 小时。
+ * 显式传入 IANA 时区则与运行环境彻底解耦。
+ *
+ * 与 `dbDateTimeInTz` 输出格式相同、刻意分开命名：那个的语义是「生成写库的字面量」，
+ * 这个的语义是「把绝对时刻渲染给人看」，分开可让调用点自证意图。
+ * 接受 Date / 字符串 / 毫秒数：mysql2 对 DATETIME 列返回 Date，而日志行里的时间
+ * 字段是数字或字符串，调用点不该被迫先判类型。
+ */
+export function formatInTz(d: Date | string | number, tz: string): string {
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return String(d); // 坏数据不该让日志/审计链路崩
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: isValidTimeZone(tz) ? tz : undefined,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const map: Record<string, string> = {};
+  for (const p of fmt.formatToParts(date)) map[p.type] = p.value;
+  return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+}
+
+/**
  * 目标时区下的 DATETIME 字面量（YYYY-MM-DD HH:MM:SS）。
  *
  * 为什么不用 new Date() 直接交给 mysql2：驱动按进程本地时区格式化，
@@ -62,17 +93,7 @@ export function todayInTz(tz: string, now: Date = new Date()): string {
  * 统一由应用侧显式生成目标时区的墙上时间字符串，读写两侧语义一致。
  */
 export function dbDateTimeInTz(tz: string, now: Date = new Date()): string {
-  const p = partsInTz(now, tz);
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: isValidTimeZone(tz) ? tz : undefined,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const map: Record<string, string> = {};
-  for (const part of fmt.formatToParts(now)) map[part.type] = part.value;
-  return `${p.date} ${map.hour}:${map.minute}:${map.second}`;
+  return formatInTz(now, tz);
 }
 
 /** 目标时区下的 YYYY-MM-DD HH:MM（用于正文署名区展示）。 */

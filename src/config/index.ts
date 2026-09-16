@@ -21,8 +21,20 @@ function boolOr(name: string, fallback: boolean): boolean {
   return v === 'true' || v === '1';
 }
 
+/**
+ * 业务时区（单一事实来源）。
+ *
+ * 库里时间列全是 DATETIME（原样存墙上时间、不做换算），所以「我们约定的墙上时间口径」
+ * 必须显式声明在一处、到处引用；而不是各自 `new Date().getHours()` 取进程本地时区 ——
+ * 容器里那是 UTC，会静默偏 8 小时。展示、写库、调度一律从这里取值。
+ */
+const BUSINESS_TZ = strOr('BUSINESS_TZ', 'Asia/Shanghai');
+
 export const config = {
   env: strOr('NODE_ENV', 'development'),
+
+  /** 业务时区（IANA 名）。展示与写库的唯一口径来源。 */
+  businessTz: BUSINESS_TZ,
   port: intOr('PORT', 3000),
   host: strOr('HOST', '127.0.0.1'),
   publicBaseUrl: strOr('PUBLIC_BASE_URL', 'http://localhost:3000'),
@@ -40,6 +52,11 @@ export const config = {
     password: strOr('DB_PASSWORD', 'change_me'),
     name: strOr('DB_NAME', 'personal_hub'),
     connectionLimit: intOr('DB_CONNECTION_LIMIT', 10),
+    /**
+     * 库内 DATETIME 的时区偏移，交给 mysql2 的 `timezone` 选项。
+     * 必须与 db 容器的 TZ、以及 businessTz 指向同一口径 —— `npm run check:tz` 会对账。
+     */
+    timezoneOffset: strOr('DB_TZ_OFFSET', '+08:00'),
   },
 
   session: {
@@ -121,7 +138,7 @@ export const config = {
     enabled: boolOr('FEED_ENABLED', false),
     // 每日触发时间 HH:MM（FEED_TZ 时区下的墙上时间）
     time: strOr('FEED_TIME', '08:30'),
-    tz: strOr('FEED_TZ', 'Asia/Shanghai'),
+    tz: strOr('FEED_TZ', BUSINESS_TZ),
     // 启动时立即跑一次（便于部署后验证，生产建议 false）
     runOnStart: boolOr('FEED_RUN_ON_START', false),
     // 错过触发时间后的补跑：进程在 08:30 之后才启动时，当日仍执行一次（每天至多一次）

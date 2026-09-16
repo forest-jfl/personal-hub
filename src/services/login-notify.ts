@@ -3,6 +3,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { pushMessage } from './notify';
 import { clientIp } from '../utils/client-ip';
+import { formatInTz } from '../utils/tz';
 
 /**
  * 登录事件通知（登录成功 / 登录失败 → 推送给管理员）。
@@ -25,19 +26,8 @@ interface FailureState {
 
 const failureMap = new Map<string, FailureState>();
 
-const timeFmt = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
 function nowStr(): string {
-  return timeFmt.format(new Date());
+  return formatInTz(new Date(), config.businessTz);
 }
 
 function shouldNotifyUser(username: string): boolean {

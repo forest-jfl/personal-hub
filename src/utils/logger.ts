@@ -2,6 +2,7 @@ import { Writable } from 'stream';
 import pino, { multistream } from 'pino';
 import pretty from 'pino-pretty';
 import { config } from '../config';
+import { formatInTz } from './tz';
 
 /** 内存环形日志缓冲：保留最近 N 行原始 JSON 日志行，供远程 logs 命令读取。 */
 const RING_CAPACITY = 2000;
@@ -50,7 +51,7 @@ export function recentLogs(n: number): string[] {
   return lines.map((line) => {
     try {
       const o = JSON.parse(line);
-      const time = new Date(o.time).toLocaleString('zh-CN');
+      const time = formatInTz(o.time, config.businessTz);
       const level = ({ 10: 'TRACE', 20: 'DEBUG', 30: 'INFO', 40: 'WARN', 50: 'ERROR', 60: 'FATAL' } as Record<number, string>)[o.level] || String(o.level);
       const extra = Object.keys(o)
         .filter((k) => !['time', 'level', 'msg', 'pid', 'hostname'].includes(k))

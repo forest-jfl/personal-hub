@@ -5,6 +5,7 @@ import path from 'path';
 import { promisify } from 'util';
 import { pool } from '../../db/connection';
 import { logger, recentLogs } from '../../utils/logger';
+import { formatInTz } from '../../utils/tz';
 import { config } from '../../config';
 
 const execFileAsync = promisify(execFile);
@@ -186,7 +187,7 @@ register({
     return list
       .map(
         (r) =>
-          `[${new Date(r.created_at).toLocaleString('zh-CN')}] ${r.username}@${r.ip} ` +
+          `[${formatInTz(r.created_at, config.businessTz)}] ${r.username}@${r.ip} ` +
           `${r.command}${r.args ? ' ' + r.args : ''} → ${r.ok ? 'OK' : 'FAIL'}`
       )
       .join('\n');
