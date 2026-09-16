@@ -15,6 +15,15 @@ services:
       MARIADB_USER: ${DB_USER:-personal_hub}
       MARIADB_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?请在 .env 中设置 DB_ROOT_PASSWORD}
+      # 固定时区：容器默认 UTC 会让 CURRENT_TIMESTAMP / NOW() / CURDATE() 比北京时间慢 8 小时。
+      # 表里的时间列全是 DATETIME（非 TIMESTAMP），DATETIME 原样存墙上时间、不做时区转换，
+      # 所以这一项决定的是「默认值写什么口径」，而不是「读出时怎么换算」：
+      #   · 与下方 app 服务同设 CST，是为了让「DB 默认值写的」与「app 用 dbDateTimeInTz 写的」
+      #     落到同一口径上 —— 此前两者混用，posts.created_at 一列里存在相差 8 小时的两种值。
+      #   · 存量数据不会因此被追溯修正（DATETIME 无隐式转换），须一次性迁移，
+      #     见 scripts/migrate-tz-cst.sql。
+      # mariadb:11 镜像自带 tzdata（/usr/share/zoneinfo 存在），无需额外安装。
+      TZ: Asia/Shanghai
     volumes:
       - db-data:/var/lib/mysql
     # 不映射端口到宿主机，仅限 compose 网络内访问

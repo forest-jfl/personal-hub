@@ -68,7 +68,8 @@ scripts/
 ├── deploy-frontend.sh      # 发布 public/ 到线上（门禁→备份→归位→上传→对账→自检→重建→重验→双路验收）
 ├── preview-mock.mjs        # 本地预览服务（静态 + 同形 mock API，供改样式时看真渲染）
 ├── check-css-coverage.mjs  # 类名覆盖率对账（全量重写样式表后必跑）
-└── verify-ui.mjs           # 浏览器级视觉与脱敏验收（自带静态服务，可指向线上）
+├── verify-ui.mjs           # 浏览器级视觉与脱敏验收（自带静态服务，可指向线上）
+└── migrate-tz-cst*.sql     # 时区基线存量迁移（+8h）与回滚，见 §5.1
 ```
 
 **线上形态**：`47.238.246.132` 上的 Docker Compose（`personal-hub-app-1` / `-db-1` / `-caddy-1`），
@@ -222,6 +223,62 @@ sudo systemctl reload nginx           # 改了 Nginx 配置后
 | `MAX_FILE_SIZE` | 单文件上限(字节) | `52428800`(50MB) |
 | `ADMIN_*` | 首次播种的管理员 | — |
 | `FEED_*` | 每日内容抓取，见第 6 节 | `FEED_ENABLED=false` |
+
+### 5.1 时区基线（改容器时区前必读）
+
+`docker-compose.yml` 里 `db` 与 `app` **都固定 `TZ=Asia/Shanghai`**。这一项容易被低估，
+因为**库内时间列全部是 `DATETIME`，不是 `TIMESTAMP`** —— 二者行为截然不同：
+
+- `TIMESTAMP` 会按会话时区做存/取换算，改容器时区会让**存量数据读出时自动变化**；
+- `DATETIME` **原样存墙上时间、不做任何换算**，改容器时区只影响**之后写什么**，
+  存量一个字节都不会动。
+
+所以容器时区决定的是「默认值口径」，**改动必须配套一次存量迁移**，否则同列会出现两种口径。
+
+**两条写入口径（须对齐）**
+
+| 写入方 | 时钟来源 | 涉及列 |
+|---|---|---|
+| DB 默认值 `CURRENT_TIMESTAMP` | 容器时区（修复前为 UTC） | `users.created_at`、`files.created_at`、`remote_cmd_log.created_at`、`posts.created_at`（抓取行）、`posts.updated_at` |
+| app 显式 `dbDateTimeInTz(FEED_TZ)` | 固定北京时间，与容器时区**解耦** | `posts.fetched_at`、`feed_fetch_log.created_at` |
+
+修复前两者并存，`posts.created_at` 一列里同时有相差 8 小时的两类值。
+给 `db` 服务加上 `TZ` 后新写入即统一，**存量靠一次性脚本迁移**：
+
+```bash
+# 迁移（幂等：重复执行不会二次 +8h）
+# 时序：先停 app / tools-api → 迁移 → 重建 db 容器使 TZ 生效 → 再起服务。
+# 中间不能有写入，否则迁移已完成而容器仍是 UTC，UPDATE 会把 updated_at 写回 UTC（时间倒退）。
+docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" personal_hub \
+  < scripts/migrate-tz-cst.sql
+docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" tools_api \
+  < scripts/migrate-tz-cst-tools-api.sql
+
+# 回滚（-8h 还原并清除标记）
+docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" personal_hub \
+  < scripts/migrate-tz-cst.rollback.sql
+```
+
+**刻意不迁移的列**（本就是北京时间语义，动一下反而错）：
+
+- `posts.created_at` 且 `source IS NULL` —— `scripts/seed-blog-posts.mjs` 显式写入的
+  「文章展示日期」（人为设定 9:00–21:30、秒位恒 `00`），不是 UTC 时刻；
+- `posts.fetched_at`、`feed_fetch_log.created_at` —— app 显式写北京时间；
+- `tools_api` 的 `api_usage.day`、`api_usage_hour.hour`、`hit_*.day`、`api_key.last_used_at`
+  —— 全由 api-service 应用层按业务时区传参（该服务有门禁 `check_sql_timezone.py`
+  禁止在 SQL 里用 `CURDATE()/NOW()` 做业务判断），不依赖 DB 时区；
+- `sessions.expires` —— unix 时间戳，与时区无关。
+
+**验证抓手**：抓取行的 `created_at` 应**等于** `fetched_at`（同一时刻的两种时钟），
+迁移脚本末尾会打印这条断言。另外 `mariadb:11` 镜像自带 tzdata，无需额外安装。
+
+**已知遗留**：`app` 容器基于 `node:20-alpine`，**镜像内没有 tzdata**，所以
+`TZ=Asia/Shanghai` 对它只是「设了但系统不认识」——容器内 `date` 仍输出 UTC。
+这不影响业务时间（`dbDateTimeInTz` 走 `Intl`/ICU，与系统时区无关），但三处依赖
+**进程本地时区**的地方仍按 UTC 输出：日志时间戳（`utils/logger.ts`）、
+登录告警里的时间（`services/login-notify.ts`）、远程命令留痕展示
+（`services/remote/registry.ts`）。要一并修就在 Dockerfile 加
+`RUN apk add --no-cache tzdata`。
 
 ---
 

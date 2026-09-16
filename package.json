@@ -13,6 +13,7 @@
     "check:cover": "ts-node scripts/check-cover-rule.ts",
     "check:assets": "ts-node scripts/check-asset-version.ts",
     "check:client-ip": "ts-node scripts/check-client-ip.ts",
+    "check:tz": "ts-node scripts/check-tz-baseline.ts",
     "preview:mock": "node scripts/preview-mock.mjs",
     "feed:daily": "ts-node src/services/daily-feed/cli.ts",
     "feed:daily:prod": "node dist/services/daily-feed/cli.js"
