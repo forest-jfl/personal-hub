@@ -13,6 +13,9 @@ uploads/
 .vscode/
 .pages-worktree/
 
+# 发布备份：scripts/deploy-frontend.sh 在服务端生成（本机没有，两边共用这份 .gitignore）
+.deploy-backups/
+
 # 本地实测产物
 .verify-shots/
 .cookies.txt

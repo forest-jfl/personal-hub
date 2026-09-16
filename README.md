@@ -65,7 +65,7 @@ personal-hub/
     ├── console.html        # 管理控制台（隐藏入口）
     └── login.html          # 登录页
 scripts/
-├── deploy-frontend.sh      # 发布 public/ 到线上（备份→上传→对账→重建镜像→重验→双路验收）
+├── deploy-frontend.sh      # 发布 public/ 到线上（门禁→备份→归位→上传→对账→自检→重建→重验→双路验收）
 ├── preview-mock.mjs        # 本地预览服务（静态 + 同形 mock API，供改样式时看真渲染）
 ├── check-css-coverage.mjs  # 类名覆盖率对账（全量重写样式表后必跑）
 └── verify-ui.mjs           # 浏览器级视觉与脱敏验收（自带静态服务，可指向线上）
@@ -78,6 +78,18 @@ scripts/
 镜像是构建期 `COPY public ./public`，所以前端改动必须重建镜像；而重建会把 `src/`
 一起编译，因此这个脚本刻意让服务端 `src/` 保持它自己的版本，
 使「前端改版」与「后端在制品」两件事不被强迫一起上线。
+
+> **发布不变量：发布内容必须等于本机 HEAD 的 `public/`。**
+> 服务端 `/home/jfl/personal-hub` 同时是 git 工作区与 docker build 上下文，而 `public/`
+> 被 git 跟踪 —— 发布等于覆盖被跟踪文件。若这份内容与远端 `main` 不一致，下一次服务端
+> `git pull` 会以「Your local changes would be overwritten by merge」**整体失败**，
+> 把 `src/` 的更新一起卡住，且报错指向 `public/`（很容易被当成误报去 `git checkout` 掉，
+> 那会静默回退线上前端）。故 `upload` 前置门禁：`public/` 有未提交改动直接拒绝
+> （`ALLOW_DIRTY=1` 可明确越过）。脚本上传前会把服务端 `public/` 归位到 git 基线，
+> 上传后用 `git status --porcelain -- public` **自检**（空 = `git pull` 永不被 `public/` 挡住）。
+>
+> 备份落在服务端 `.deploy-backups/`（**在 git 工作区之外**，并已加进 `.dockerignore`），
+> 只保留最近 3 份；早期版本留在工作区根的 `public.bak.<ts>` 由脚本自动收编。
 
 ---
 

@@ -10,3 +10,5 @@ uploads
 .DS_Store
 deploy
 *.md
+# 发布备份（scripts/deploy-frontend.sh 在服务端生成）：不进构建上下文
+.deploy-backups
