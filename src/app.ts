@@ -84,19 +84,6 @@ export function createApp(): Express {
     })
   );
 
-  // ===== 临时诊断端点（验证真实客户端 IP 后就地删除，不留生产）=====
-  app.get('/api/__ipdiag', (req, res) => {
-    res.json({
-      socket: req.socket.remoteAddress,
-      xff: req.headers['x-forwarded-for'] || '',
-      xRealIp: req.headers['x-real-ip'] || '',
-      cfConnecting: req.headers['cf-connecting-ip'] || '',
-      cfRay: req.headers['cf-ray'] ? 'present' : '',
-      reqIp: req.ip,
-      ips: req.ips,
-    });
-  });
-
   // API 路由
   app.use('/health', healthRouter);
   app.use('/api/auth', authRouter);
