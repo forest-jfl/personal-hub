@@ -124,12 +124,17 @@ SELECT @mig, 'db 容器改 TZ=Asia/Shanghai 前的存量时间列 +8h（UTC→CS
 COMMIT;
 
 -- ---- 迁移后自检（人工核对）----------------------------------------------------
--- 关键断言：抓取行的 created_at 应等于 fetched_at ——
--- 两者本是同一时刻（抓取入库），只是原先一个走 DB 默认值(UTC)、一个由应用显式写(CST)。
-SELECT '== ① 抓取行 created_at 应已等于 fetched_at（不等则口径仍不一致）==' AS check_note;
+-- 关键断言：抓取行的 created_at 与 fetched_at 必须落在同一时刻附近。
+-- 两者本是同一次抓取：fetched_at 由 app 在抓取开始时一次性打上，created_at 走 DB 默认值
+-- （逐行 INSERT 那一刻），所以**末行天然会晚 1 秒左右** —— 线上实测 18 条里 17 条 0 秒、
+-- 1 条 -1 秒。因此不能断言「完全相等」（那会永远报一条假红，反而训练人忽略它），
+-- 要断言的是「没有整小时级的差」：>60 秒的行必须为 0。
+SELECT '== ① 抓取行 created_at 与 fetched_at 的口径一致性（rows_bad 必须为 0）==' AS check_note;
 SELECT COUNT(*) AS rows_total,
-       SUM(created_at = fetched_at) AS rows_created_eq_fetched,
-       SUM(created_at <> fetched_at) AS rows_still_mismatched
+       SUM(created_at = fetched_at) AS rows_exact,
+       SUM(ABS(TIMESTAMPDIFF(SECOND, created_at, fetched_at)) <= 60) AS rows_within_60s,
+       MAX(ABS(TIMESTAMPDIFF(SECOND, created_at, fetched_at))) AS max_abs_diff_sec,
+       SUM(ABS(TIMESTAMPDIFF(SECOND, created_at, fetched_at)) > 60) AS rows_bad
   FROM posts WHERE source IS NOT NULL;
 
 SELECT '== ② 手工行分类计数：seed 行 created_at 必须保持秒位 00（未被误迁移）==' AS check_note;

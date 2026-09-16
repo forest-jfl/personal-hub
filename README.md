@@ -286,9 +286,12 @@ docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" personal_hub \
 `UPDATE posts` 都必须显式赋值该列，否则会被顺手刷成当前时间，静默毁掉整列。
 迁移与回滚脚本都按此处理，`npm run check:tz` 会逐条断言。
 
-**验证抓手**：迁移脚本末尾会打印三条自检 —— ① 抓取行的 `created_at` 应**等于** `fetched_at`
-（同一时刻的两种时钟）；② 手工行分类计数（`seed_rows` 应等于 `sec_zero_rows`，
-即 seed 行的 `created_at` 秒位仍是 `00`、未被误迁移）；③ 各列迁移后的范围。
+**验证抓手**：迁移脚本末尾会打印三条自检 —— ① 抓取行的 `created_at` 与 `fetched_at`
+必须落在同一时刻附近（**`rows_bad` 必须为 0**，即差异 >60 秒的行为 0）。
+注意这里**不能**断言两列完全相等：`fetched_at` 是 app 在抓取开始时一次性打上的，
+`created_at` 走 DB 默认值（逐行 INSERT 那一刻），末行天然晚 1 秒左右 ——
+线上实测 18 条里 17 条 0 秒、1 条 -1 秒；② 手工行分类计数（`seed_rows` 应等于
+`sec_zero_rows`，即 seed 行的 `created_at` 秒位仍是 `00`、未被误迁移）；③ 各列迁移后的范围。
 另外 `mariadb:11` 镜像自带 tzdata，无需额外安装。
 
 **已知遗留**：`app` 容器基于 `node:20-alpine`，**镜像内没有 tzdata**，所以

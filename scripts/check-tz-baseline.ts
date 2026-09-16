@@ -181,6 +181,14 @@ for (const { file, postsTable } of MIGRATIONS) {
     );
     // 清单必须存在且可解析
     check(`${file} 声明了 seed 清单 @seed_slugs`, /SET\s+@seed_slugs\s*:=\s*'/i.test(sql));
+
+    // 抓取行自检必须用容差，而不是断言「created_at 完全等于 fetched_at」——
+    // 后者在线上永远是 17/18（fetched_at 是抓取开始时一次打上的，created_at 是逐行插入
+    // 那一刻的 DB 默认值，末行天然晚 1 秒）。写死相等只会长期挂着一条假红。
+    check(
+      `${file} 抓取行自检用容差（>60 秒才判坏），未写死「完全相等」`,
+      /rows_bad/i.test(sql) && /TIMESTAMPDIFF\(SECOND,\s*created_at,\s*fetched_at\)/i.test(sql)
+    );
   }
 }
 
