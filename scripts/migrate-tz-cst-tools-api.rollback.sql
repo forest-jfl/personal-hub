@@ -6,6 +6,9 @@
 --     < scripts/migrate-tz-cst-tools-api.rollback.sql
 -- ============================================================================
 
+-- 同迁移脚本：固定连接字符集/排序规则，否则 @mig 与列比较会报 1267。
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 SET @mig := '2026-09-16-db-tz-cst';
 
 START TRANSACTION;

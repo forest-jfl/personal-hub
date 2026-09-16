@@ -235,15 +235,22 @@ sudo systemctl reload nginx           # 改了 Nginx 配置后
 
 所以容器时区决定的是「默认值口径」，**改动必须配套一次存量迁移**，否则同列会出现两种口径。
 
-**两条写入口径（须对齐）**
+**三条写入口径（须对齐）**
 
 | 写入方 | 时钟来源 | 涉及列 |
 |---|---|---|
-| DB 默认值 `CURRENT_TIMESTAMP` | 容器时区（修复前为 UTC） | `users.created_at`、`files.created_at`、`remote_cmd_log.created_at`、`posts.created_at`（抓取行）、`posts.updated_at` |
+| DB 默认值 `CURRENT_TIMESTAMP` | 容器时区（修复前为 UTC） | `users.created_at`、`files.created_at`、`remote_cmd_log.created_at`、`posts.created_at`（抓取行 + 控制台创建的手工行）、`posts.updated_at` |
 | app 显式 `dbDateTimeInTz(FEED_TZ)` | 固定北京时间，与容器时区**解耦** | `posts.fetched_at`、`feed_fetch_log.created_at` |
+| seed 脚本显式写入（`seed-blog-posts.mjs`） | 人为设定的展示日期，本就是北京时间语义 | `posts.created_at`（仅 seed 清单内的 slug） |
 
-修复前两者并存，`posts.created_at` 一列里同时有相差 8 小时的两类值。
+修复前前两者并存，`posts.created_at` 一列里同时有相差 8 小时的两类值。
 给 `db` 服务加上 `TZ` 后新写入即统一，**存量靠一次性脚本迁移**：
+
+> **脚本对客户端字符集敏感，勿删开头的 `SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci`。**
+> 用户变量的字符集/排序规则**取自连接**：MySQL 8 的连接默认是 `utf8mb4_0900_ai_ci`，
+> 与库里 `utf8mb4_unicode_ci` 的列相比会直接 `ERROR 1267 Illegal mix of collations` ——
+> 整条事务回滚、迁移静默不做；而 Windows 的 mysql CLI 默认又是 **gbk** 连接，
+> 会把脚本里的中文字面量写坏且不报错。有这一行，脚本行为才不取决于客户端默认值。
 
 ```bash
 # 迁移（幂等：重复执行不会二次 +8h）
@@ -261,16 +268,28 @@ docker compose exec -T db mariadb -uroot -p"$DB_ROOT_PASSWORD" personal_hub \
 
 **刻意不迁移的列**（本就是北京时间语义，动一下反而错）：
 
-- `posts.created_at` 且 `source IS NULL` —— `scripts/seed-blog-posts.mjs` 显式写入的
-  「文章展示日期」（人为设定 9:00–21:30、秒位恒 `00`），不是 UTC 时刻；
+- `posts.created_at` 且 **slug 在 seed 清单内** —— `scripts/seed-blog-posts.mjs` 显式写入的
+  「文章展示日期」（人为设定 9:00–21:30、秒位恒 `00`），不是 UTC 时刻。
+  ⚠️ 判别依据是 **slug 是否在 seed 清单内，而不是 `source IS NULL`** —— 手工文章有两个来源：
+  seed 写入的（展示日期，不迁移）与控制台创建的（走 DB 默认值，UTC，**要迁移**）。
+  线上就有一篇控制台创建的文章（`站点上线-半山日志-改版发布`，秒位 `33`），
+  若按 `source` 两分，它会永久保持早 8 小时。清单硬编码在 SQL 里，
+  `npm run check:tz` 会与 seed 脚本逐条对账，防两边分叉。
 - `posts.fetched_at`、`feed_fetch_log.created_at` —— app 显式写北京时间；
 - `tools_api` 的 `api_usage.day`、`api_usage_hour.hour`、`hit_*.day`、`api_key.last_used_at`
   —— 全由 api-service 应用层按业务时区传参（该服务有门禁 `check_sql_timezone.py`
   禁止在 SQL 里用 `CURDATE()/NOW()` 做业务判断），不依赖 DB 时区；
 - `sessions.expires` —— unix 时间戳，与时区无关。
 
-**验证抓手**：抓取行的 `created_at` 应**等于** `fetched_at`（同一时刻的两种时钟），
-迁移脚本末尾会打印这条断言。另外 `mariadb:11` 镜像自带 tzdata，无需额外安装。
+另有一条易漏的边界：`posts.updated_at` 是 `ON UPDATE CURRENT_TIMESTAMP`，
+而 `UPDATE posts SET views = views + 1`（每次浏览）也会刷新它 —— 所以**任何**
+`UPDATE posts` 都必须显式赋值该列，否则会被顺手刷成当前时间，静默毁掉整列。
+迁移与回滚脚本都按此处理，`npm run check:tz` 会逐条断言。
+
+**验证抓手**：迁移脚本末尾会打印三条自检 —— ① 抓取行的 `created_at` 应**等于** `fetched_at`
+（同一时刻的两种时钟）；② 手工行分类计数（`seed_rows` 应等于 `sec_zero_rows`，
+即 seed 行的 `created_at` 秒位仍是 `00`、未被误迁移）；③ 各列迁移后的范围。
+另外 `mariadb:11` 镜像自带 tzdata，无需额外安装。
 
 **已知遗留**：`app` 容器基于 `node:20-alpine`，**镜像内没有 tzdata**，所以
 `TZ=Asia/Shanghai` 对它只是「设了但系统不认识」——容器内 `date` 仍输出 UTC。

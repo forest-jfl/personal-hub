@@ -7,7 +7,7 @@
  * 于是 `posts.created_at` 一列里同时存在相差 8 小时的两类值。
  * 这类问题在本地开发环境**看不出来**：本机 MySQL 的时区就是 +08:00，怎么试都对。
  *
- * 所以把「改动时区时必须同时成立的四条约束」固化下来，纯文本分析即可验证：
+ * 所以把「改动时区时必须同时成立的八条约束」固化下来，纯文本分析即可验证：
  *   ① compose 的 db 与 app 必须同设同一个 TZ，且为 Asia/Shanghai
  *      —— 两侧不一致 = 两条写入口径再次分裂，正是本次病根。
  *      （`feed.repo.ts` 的 `DATE_SUB(NOW(), INTERVAL ? DAY)` 去重窗口、
@@ -18,6 +18,16 @@
  *   ④ 迁移脚本里每一条 `UPDATE posts` 都必须**显式赋值 updated_at** ——
  *      该列是 `ON UPDATE CURRENT_TIMESTAMP`，只改别的列会把它顺手刷成当前时间，
  *      静默毁掉整列。
+ *   ⑤ `posts` 必须按**三种来源**分别处理，而不是只按 `source` 两分：抓取行（UTC）、
+ *      控制台手工行（UTC）、seed 手工行（北京时间展示日期）。首版漏了第三类判别，
+ *      会把控制台创建的文章永久漏迁移。
+ *   ⑥ SQL 里硬编码的 seed 清单必须与 `seed-blog-posts.mjs` 逐条一致 —— 两边分叉后
+ *      迁移同样是静默错。
+ *   ⑦ 四个 SQL 脚本都必须 `SET NAMES utf8mb4` —— 用户变量的排序规则取自连接，
+ *      不固定就等于把脚本行为交给客户端默认值（实测：MySQL 8 默认连接报 1267，
+ *      Windows mysql CLI 默认 gbk 把中文字面量写坏）。
+ *   ⑧ 回滚脚本必须镜像迁移的三分类（seed 清单 + `FIND_IN_SET` 判别），
+ *      否则回滚会漏改控制台文章或误改 seed 展示日期。
  *
  * 用法：npm run check:tz（ts-node，零新增依赖）
  * 退出码 0 通过 / 1 断言失败
@@ -144,12 +154,60 @@ for (const { file, postsTable } of MIGRATIONS) {
         /updated_at\s*=/i.test(setClause)
       );
     });
-    // 抓取行与手工行的 created_at 处理必须不同：前者迁移、后者保持
-    check(
-      `${file} 抓取行(created_at 迁移)与手工行(仅 updated_at)分开处理`,
-      /WHERE\s+source\s+IS\s+NOT\s+NULL/i.test(sql) && /WHERE\s+source\s+IS\s+NULL/i.test(sql)
+
+    // ⑤ posts 必须按「三种来源」分别处理，不能只按 source 两分。
+    //    线上实际有三种：抓取行（UTC）、控制台手工行（UTC）、seed 手工行（北京时间展示日期）。
+    //    首版只按 source 两分，会把控制台创建的第一篇（`站点上线-半山日志-改版发布`）
+    //    误判为 seed 行而永久漏迁移 —— 判别依据必须是 slug 是否在 seed 清单内。
+    const byFeed = stmts.filter((s) => /source\s+IS\s+NOT\s+NULL/i.test(s) && /created_at\s*=/i.test(s));
+    const byConsole = stmts.filter(
+      (s) => /source\s+IS\s+NULL/i.test(s) && /FIND_IN_SET\(slug,\s*@seed_slugs\)\s*=\s*0/i.test(s)
     );
+    const bySeed = stmts.filter(
+      (s) => /source\s+IS\s+NULL/i.test(s) && /FIND_IN_SET\(slug,\s*@seed_slugs\)\s*>\s*0/i.test(s)
+    );
+    check(`${file} ① 抓取行迁移 created_at`, byFeed.length === 1, `命中 ${byFeed.length} 条`);
+    check(`${file} ② 控制台手工行迁移 created_at（非 seed 清单）`, byConsole.length === 1, `命中 ${byConsole.length} 条`);
+    check(`${file} ③ seed 手工行只动 updated_at`, bySeed.length === 1, `命中 ${bySeed.length} 条`);
+    // ③ 必须**不**赋值 created_at：它是 seed 写的人为展示日期，+8h 就毁了这个语义
+    if (bySeed.length === 1) {
+      const setClause = bySeed[0].slice(bySeed[0].search(/\bSET\b/i));
+      check(`${file} ③ seed 行不迁移 created_at（展示日期须保持原值）`, !/created_at\s*=/i.test(setClause));
+    }
+    // seed 行若从未被刷新，updated_at 与 created_at 同为北京时间 → 必须排除
+    check(
+      `${file} ③ seed 行以 updated_at <> created_at 排除「从未被刷新」的行`,
+      bySeed.length === 1 && /updated_at\s*<>\s*created_at/i.test(bySeed[0])
+    );
+    // 清单必须存在且可解析
+    check(`${file} 声明了 seed 清单 @seed_slugs`, /SET\s+@seed_slugs\s*:=\s*'/i.test(sql));
   }
+}
+
+// ⑥ seed 清单防漂移：SQL 里硬编码的 slug 集合必须与 seed-blog-posts.mjs 的完全一致。
+//    两边一旦分叉，迁移要么漏迁控制台文章、要么把展示日期也 +8h —— 都是静默错误。
+{
+  const file = 'scripts/migrate-tz-cst.sql';
+  const sql = read(file);
+  const seedSrc = read('scripts/seed-blog-posts.mjs');
+
+  const fromSeed = new Set<string>();
+  for (const m of seedSrc.matchAll(/slug:\s*'([^']+)'/g)) fromSeed.add(m[1]);
+
+  const listMatch = /SET\s+@seed_slugs\s*:=\s*'([^']*)'/i.exec(sql);
+  const fromSql = new Set<string>(
+    listMatch ? listMatch[1].split(',').map((s) => s.trim()).filter(Boolean) : []
+  );
+
+  const missing = [...fromSeed].filter((s) => !fromSql.has(s));
+  const extra = [...fromSql].filter((s) => !fromSeed.has(s));
+  check(
+    `${file} 的 seed 清单与 seed-blog-posts.mjs 逐条一致`,
+    listMatch !== null && fromSeed.size > 0 && missing.length === 0 && extra.length === 0,
+    `seed=${fromSeed.size} sql=${fromSql.size}` +
+      (missing.length ? ` 缺失=[${missing.join(',')}]` : '') +
+      (extra.length ? ` 多余=[${extra.join(',')}]` : '')
+  );
 }
 
 // 回滚脚本必须能清除标记，否则守卫会挡住反向更新
@@ -159,6 +217,48 @@ for (const file of [
 ]) {
   const sql = read(file);
   check(`${file} 先删标记再回退`, /DELETE\s+FROM\s+schema_migrations[\s\S]*?DATE_SUB\(/i.test(sql));
+}
+
+// ⑦ 四个 SQL 脚本都必须固定连接字符集/排序规则。
+//    这是实测踩出来的：用户变量的字符集/排序规则取自**连接**，MySQL 8 的 utf8mb4 连接
+//    默认 utf8mb4_0900_ai_ci，与库里 utf8mb4_unicode_ci 的列相比直接
+//    `ERROR 1267 Illegal mix of collations` —— 整条事务回滚、迁移静默不做；
+//    而 Windows mysql CLI 默认 gbk 连接又会让脚本正文里的中文字面量写坏（且不报错）。
+//    没有这行，脚本行为就取决于客户端默认值，本地怎么试都可能与线上不同。
+for (const file of [
+  ...MIGRATIONS.map((m) => m.file),
+  'scripts/migrate-tz-cst.rollback.sql',
+  'scripts/migrate-tz-cst-tools-api.rollback.sql',
+]) {
+  const sql = read(file);
+  check(
+    `${file} 固定了连接字符集（SET NAMES utf8mb4，否则可能 1267 或中文乱码）`,
+    /SET\s+NAMES\s+utf8mb4\b/i.test(sql)
+  );
+}
+
+// ⑧ 回滚必须镜像迁移的三分类：seed 清单与 FIND_IN_SET 判别都要在，
+//    否则回滚会漏改控制台文章 / 误改 seed 展示日期。
+{
+  const mig = read('scripts/migrate-tz-cst.sql');
+  const rb = read('scripts/migrate-tz-cst.rollback.sql');
+  const listOf = (sql: string) => {
+    const m = /SET\s+@seed_slugs\s*:=\s*'([^']*)'/i.exec(sql);
+    return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean).sort() : [];
+  };
+  const ml = listOf(mig);
+  const rl = listOf(rb);
+  check(
+    '回滚脚本的 seed 清单与迁移脚本逐条一致',
+    ml.length > 0 && ml.join(',') === rl.join(','),
+    `迁移=${ml.length} 回滚=${rl.length}`
+  );
+  const rbStmts = rb.split(';').filter((s) => /UPDATE\s+posts\b/i.test(s));
+  check('回滚脚本与迁移一样把 posts 分三类处理', rbStmts.length === 3, `${rbStmts.length} 条`);
+  check(
+    '回滚脚本的 seed 行同样以 updated_at <> created_at 为条件（与迁移镜像）',
+    /updated_at\s*<>\s*created_at[\s\S]*?DATE_SUB|FIND_IN_SET\(slug,\s*@seed_slugs\)\s*>\s*0[\s\S]*?updated_at\s*<>\s*created_at/i.test(rb)
+  );
 }
 
 // 迁移脚本不得直接引用别的库名：本机也存在同名 tools_api / personal_hub 库，

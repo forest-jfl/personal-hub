@@ -23,6 +23,11 @@
 --      只应指向服务器容器内的库。
 -- ============================================================================
 
+-- 固定连接字符集与排序规则，理由同 scripts/migrate-tz-cst.sql：
+-- 用户变量的排序规则取自连接，与列不一致会报 ERROR 1267 并使事务整体回滚；
+-- 而 Windows mysql CLI 默认 gbk 连接会让脚本里的中文字面量写坏（且不报错）。
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
   id         VARCHAR(64)  NOT NULL COMMENT '迁移标识',
   applied_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
